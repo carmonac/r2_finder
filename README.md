@@ -3,7 +3,16 @@
 <!-- DOWNLOAD_SECTION_START -->
 ## Download
 
-No release published yet. Create a tag (`git tag v1.0.0 && git push --tags`) to trigger the release workflow.
+[**R2 Finder v1.0.0 — Descargar DMG**](https://github.com/carmonac/rs_2finder/releases/download/v1.0.0/R2.Finder.dmg)
+
+Arrastra **R2 Finder.app** a tu carpeta `/Applications` desde el DMG.
+
+Como la aplicación no está notarizada, macOS la pondrá en cuarentena la
+primera vez. Ejecuta este comando en Terminal **antes** de abrirla:
+
+```bash
+xattr -d com.apple.quarantine /Applications/R2\ Finder.app
+```
 <!-- DOWNLOAD_SECTION_END -->
 
 ## Why does this exist?
