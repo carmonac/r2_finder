@@ -3,12 +3,12 @@
 <!-- DOWNLOAD_SECTION_START -->
 ## Download
 
-[**R2 Finder v1.0.0 — Descargar DMG**](https://github.com/carmonac/rs_2finder/releases/download/v1.0.0/R2.Finder.dmg)
+[**R2 Finder v1.1.1 — Download DMG**](https://github.com/carmonac/r2_finder/releases/download/v1.1.1/R2.Finder.dmg)
 
-Arrastra **R2 Finder.app** a tu carpeta `/Applications` desde el DMG.
+Drag **R2 Finder.app** from the DMG to your `/Applications` folder.
 
-Como la aplicación no está notarizada, macOS la pondrá en cuarentena la
-primera vez. Ejecuta este comando en Terminal **antes** de abrirla:
+**Important:** Since the application is not notarized, macOS will quarantine it the
+first time. Run this command in Terminal **before** opening it:
 
 ```bash
 xattr -d com.apple.quarantine /Applications/R2\ Finder.app
