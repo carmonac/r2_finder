@@ -755,8 +755,15 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
                 validateDrop:(id<NSDraggingInfo>)info
                  proposedRow:(NSInteger)row
        proposedDropOperation:(NSTableViewDropOperation)op {
-    if (op == NSTableViewDropOn && row >= 0 && (NSUInteger)row < _entries.count)
+    if (op == NSTableViewDropOn && row >= 0 && (NSUInteger)row < _entries.count) {
         if (!_entries[(NSUInteger)row].isDir) return NSDragOperationNone;
+    } else if (op == NSTableViewDropAbove) {
+        // Retarget "between rows" drops to the whole table (drop into current dir)
+        [tv setDropRow:-1 dropOperation:NSTableViewDropOn];
+    }
+    // Support both copy (default) and move (Option key held)
+    NSDragOperation mask = info.draggingSourceOperationMask;
+    if (mask & NSDragOperationMove) return NSDragOperationMove;
     return NSDragOperationCopy;
 }
 

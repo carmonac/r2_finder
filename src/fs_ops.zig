@@ -423,7 +423,8 @@ fn runTransfer(job: *TransferJob) !void {
 
     try argv.append("/usr/bin/rsync");
     try argv.append("-a"); // archive: recursive, preserve attrs/symlinks/perms
-    try argv.append("-P"); // --partial --progress per file
+    try argv.append("-v"); // verbose: list files being transferred
+    try argv.append("--progress"); // per-file progress output
     if (!job.overwrite) try argv.append("--ignore-existing");
     if (job.is_move) try argv.append("--remove-source-files"); // atomic move
 
@@ -460,7 +461,8 @@ fn runTransfer(job: *TransferJob) !void {
     var stderrCtx = DrainCtx{ .file = child.stderr.?, .io_handle = io };
     const stderrThread = try std.Thread.spawn(.{}, DrainCtx.run, .{&stderrCtx});
 
-    // Read stdout, parsing rsync --progress output for percentage (e.g. " 45%")
+    // Read stdout, parsing rsync --progress per-file output.
+    // Format: "  10485760 100%  352.23MB/s   00:00:00 (xfer#1, to-check=5/10)"
     {
         const stdout = child.stdout.?;
         var line_buf: [1024]u8 = undefined;
@@ -472,9 +474,16 @@ fn runTransfer(job: *TransferJob) !void {
             for (read_buf[0..n]) |byte| {
                 if (byte == '\n' or byte == '\r') {
                     if (line_len > 0) {
-                        const pct = parseRsyncPercent(line_buf[0..line_len]);
-                        if (pct) |p| {
-                            job.on_progress(job.ctx, p / 100.0, 0, 0, 0, 0);
+                        const info = parseRsyncProgress(line_buf[0..line_len]);
+                        if (info.overall_progress != null) {
+                            job.on_progress(
+                                job.ctx,
+                                info.overall_progress.?,
+                                info.bytes,
+                                0,
+                                info.speed,
+                                info.eta,
+                            );
                         }
                         line_len = 0;
                     }
@@ -856,11 +865,134 @@ fn parseSevenZPercent(line: []const u8) ?f64 {
     return null;
 }
 
-/// Parse percentage from rsync --progress output.
-/// Lines look like: "  1,234,567  45%   12.34MB/s    0:01:23"
-fn parseRsyncPercent(line: []const u8) ?f64 {
-    // Same logic — find a number before '%'
-    return parseSevenZPercent(line);
+const RsyncProgress = struct {
+    overall_progress: ?f64 = null, // 0.0 .. 1.0
+    bytes: u64 = 0,
+    speed: f64 = 0,
+    eta: i64 = 0,
+};
+
+/// Parse rsync --progress per-file output line.
+/// Format: "  10485760 100%  352.23MB/s   00:00:00 (xfer#1, to-check=5/10)"
+fn parseRsyncProgress(line: []const u8) RsyncProgress {
+    var result = RsyncProgress{};
+    const trimmed = std.mem.trim(u8, line, " \t");
+
+    // Split by whitespace and parse each token
+    var it = std.mem.tokenizeAny(u8, trimmed, " \t");
+
+    // First token: bytes transferred (may contain commas)
+    if (it.next()) |bytes_str| {
+        result.bytes = parseCommaNumber(bytes_str);
+    } else return result;
+
+    // Second token: percentage (e.g. "100%") — per-file percentage, skip
+    _ = it.next() orelse return result;
+
+    // Third token: speed (e.g. "352.23MB/s")
+    if (it.next()) |speed_str| {
+        result.speed = parseRsyncSpeed(speed_str);
+    } else return result;
+
+    // Fourth token: time (e.g. "00:00:00")
+    if (it.next()) |eta_str| {
+        result.eta = parseTimeToSeconds(eta_str);
+    } else return result;
+
+    // Remaining tokens may contain "(xfer#1, to-check=5/10)"
+    // Look for "to-check=" in the rest of the line
+    if (std.mem.indexOf(u8, trimmed, "to-check=")) |pos| {
+        const after = trimmed[pos + "to-check=".len ..];
+        // Parse "X/Y)"
+        if (std.mem.indexOfScalar(u8, after, '/')) |slash| {
+            var end = slash + 1;
+            while (end < after.len and after[end] >= '0' and after[end] <= '9') : (end += 1) {}
+            const checked = std.fmt.parseInt(u64, after[0..slash], 10) catch return result;
+            const total = std.fmt.parseInt(u64, after[slash + 1 .. end], 10) catch return result;
+            if (total > 0) {
+                // macOS openrsync: to-check counts UP (files checked so far)
+                result.overall_progress = @as(f64, @floatFromInt(checked)) / @as(f64, @floatFromInt(total));
+            }
+        }
+    }
+
+    return result;
+}
+
+fn parseCommaNumber(s: []const u8) u64 {
+    var val: u64 = 0;
+    for (s) |ch| {
+        if (ch >= '0' and ch <= '9') {
+            val = val * 10 + (ch - '0');
+        }
+        // skip commas and dots used as thousand separators
+    }
+    return val;
+}
+
+fn parseRsyncSpeed(s: []const u8) f64 {
+    // Find where the unit starts (first non-digit, non-dot character)
+    var end: usize = 0;
+    for (s, 0..) |ch, i| {
+        if ((ch >= '0' and ch <= '9') or ch == '.') {
+            end = i + 1;
+        } else break;
+    }
+    if (end == 0) return 0;
+    const num = parseSimpleFloat(s[0..end]);
+    const unit = s[end..];
+    if (std.mem.startsWith(u8, unit, "GB/s")) return num * 1024 * 1024 * 1024;
+    if (std.mem.startsWith(u8, unit, "MB/s")) return num * 1024 * 1024;
+    if (std.mem.startsWith(u8, unit, "kB/s")) return num * 1024;
+    return num; // B/s
+}
+
+fn parseSimpleFloat(s: []const u8) f64 {
+    var int_part: f64 = 0;
+    var frac_part: f64 = 0;
+    var frac_div: f64 = 1;
+    var past_dot = false;
+    for (s) |ch| {
+        if (ch == '.') {
+            past_dot = true;
+        } else if (ch >= '0' and ch <= '9') {
+            if (past_dot) {
+                frac_div *= 10;
+                frac_part += @as(f64, @floatFromInt(ch - '0')) / frac_div;
+            } else {
+                int_part = int_part * 10 + @as(f64, @floatFromInt(ch - '0'));
+            }
+        }
+    }
+    return int_part + frac_part;
+}
+
+fn parseTimeToSeconds(s: []const u8) i64 {
+    // Format: "H:MM:SS" or "M:SS" or just seconds
+    var parts: [3]i64 = .{ 0, 0, 0 };
+    var part_count: usize = 0;
+    var current: i64 = 0;
+    for (s) |ch| {
+        if (ch == ':') {
+            if (part_count < 3) {
+                parts[part_count] = current;
+                part_count += 1;
+            }
+            current = 0;
+        } else if (ch >= '0' and ch <= '9') {
+            current = current * 10 + (ch - '0');
+        }
+    }
+    if (part_count < 3) {
+        parts[part_count] = current;
+        part_count += 1;
+    }
+    return switch (part_count) {
+        1 => parts[0],
+        2 => parts[0] * 60 + parts[1],
+        3 => parts[0] * 3600 + parts[1] * 60 + parts[2],
+        else => 0,
+    };
 }
 
 // ===========================================================================
