@@ -571,6 +571,34 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
 - (IBAction)deleteSelected:(id)sender {
     NSArray<NSString *> *paths = [self selectedPaths];
     if (!paths.count) return;
+
+    // Check if the volume supports Trash by testing trashItemAtURL on the first item.
+    BOOL volumeSupportsTrash = YES;
+    {
+        NSURL *testURL = [NSURL fileURLWithPath:paths.firstObject];
+        // Check if the volume supports trash by looking at the volume root.
+        // Boot volume (/) always supports trash. External volumes need .Trashes.
+        NSURL *volumeURL = nil;
+        [testURL getResourceValue:&volumeURL forKey:NSURLVolumeURLKey error:nil];
+        NSString *volumePath = volumeURL ? volumeURL.path : nil;
+        if (volumePath && ![volumePath isEqualToString:@"/"]) {
+            NSString *trashes = [volumePath stringByAppendingPathComponent:@".Trashes"];
+            NSFileManager *fm = [NSFileManager defaultManager];
+            BOOL isDir = NO;
+            if (![fm fileExistsAtPath:trashes isDirectory:&isDir] || !isDir) {
+                volumeSupportsTrash = NO;
+            }
+        }
+    }
+
+    if (volumeSupportsTrash) {
+        [self confirmTrashDelete:paths];
+    } else {
+        [self confirmPermanentDelete:paths];
+    }
+}
+
+- (void)confirmTrashDelete:(NSArray<NSString *> *)paths {
     NSAlert *alert = [[NSAlert alloc] init];
     if (paths.count == 1)
         alert.messageText = [NSString stringWithFormat:@"Mover \"%@\" a la papelera?",
@@ -589,9 +617,43 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
         for (NSString *path in paths) {
             NSURL *url = [NSURL fileURLWithPath:path];
             if (![fm trashItemAtURL:url resultingItemURL:nil error:&error]) {
-                [wself showErrorMessage:error.localizedDescription];
+                // Trash failed — fall back to offering permanent deletion
+                [wself confirmPermanentDelete:paths];
                 return;
             }
+        }
+        [wself loadPath:wself.currentPath];
+    }];
+}
+
+- (void)confirmPermanentDelete:(NSArray<NSString *> *)paths {
+    NSAlert *alert = [[NSAlert alloc] init];
+    if (paths.count == 1)
+        alert.messageText = [NSString stringWithFormat:
+            @"\"%@\" se eliminará permanentemente.",
+            paths.firstObject.lastPathComponent];
+    else
+        alert.messageText = [NSString stringWithFormat:
+            @"%lu elementos se eliminarán permanentemente.",
+            (unsigned long)paths.count];
+    alert.informativeText = @"Este volumen no tiene papelera. Esta acción no se puede deshacer.";
+    [alert addButtonWithTitle:@"Eliminar"];
+    [alert addButtonWithTitle:@"Cancelar"];
+    alert.alertStyle = NSAlertStyleCritical;
+    // Make the "Eliminar" button visually destructive
+    alert.buttons.firstObject.hasDestructiveAction = YES;
+    __weak typeof(self) wself = self;
+    [alert beginSheetModalForWindow:self.view.window completionHandler:^(NSModalResponse resp) {
+        if (resp != NSAlertFirstButtonReturn) return;
+        NSUInteger count = paths.count;
+        const char **cPaths = malloc(count * sizeof(char *));
+        for (NSUInteger i = 0; i < count; i++)
+            cPaths[i] = paths[i].UTF8String;
+        char errBuf[512] = {0};
+        BOOL ok = zig_delete_files(cPaths, (uint64_t)count, errBuf, sizeof(errBuf));
+        free(cPaths);
+        if (!ok) {
+            [wself showErrorMessage:@(errBuf)];
         }
         [wself loadPath:wself.currentPath];
     }];
