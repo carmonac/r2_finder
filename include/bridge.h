@@ -109,6 +109,16 @@ void zig_compress(const char        *sevenzz_path,
                   ZigProgressCallback   on_progress,
                   ZigCompletionCallback on_done);
 
+// Async compress + split into volumes of volume_size_mb megabytes.
+void zig_compress_split(const char        *sevenzz_path,
+                        const char *const *src_paths,
+                        uint64_t           src_count,
+                        const char        *dst_archive,
+                        uint32_t           volume_size_mb,
+                        void              *ctx,
+                        ZigProgressCallback   on_progress,
+                        ZigCompletionCallback on_done);
+
 // Async uncompress (7z / zip archive).
 void zig_uncompress(const char *sevenzz_path,
                     const char *archive_path,

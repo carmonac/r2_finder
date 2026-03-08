@@ -34,6 +34,7 @@ comptime {
     @export(&transfer.zig_copy_files, .{ .name = "zig_copy_files" });
     @export(&transfer.zig_move_files, .{ .name = "zig_move_files" });
     @export(&archive.zig_compress, .{ .name = "zig_compress" });
+    @export(&archive.zig_compress_split, .{ .name = "zig_compress_split" });
     @export(&archive.zig_uncompress, .{ .name = "zig_uncompress" });
     @export(&file_ops.zig_delete_files, .{ .name = "zig_delete_files" });
     @export(&file_ops.zig_create_directory, .{ .name = "zig_create_directory" });

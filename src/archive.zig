@@ -17,6 +17,7 @@ const ArchiveJob = struct {
     archive_path: [:0]u8, // dst archive (compress) or src archive (uncompress)
     dst_dir: ?[:0]u8, // only for uncompress
     is_compress: bool,
+    volume_size_mb: u32, // 0 = no split, >0 = split into volumes of this size
     ctx: ?*anyopaque,
     on_progress: ZigProgressCallback,
     on_done: ZigCompletionCallback,
@@ -67,6 +68,66 @@ pub fn zig_compress(
         },
         .dst_dir = null,
         .is_compress = true,
+        .volume_size_mb = 0,
+        .ctx = ctx,
+        .on_progress = on_progress,
+        .on_done = on_done,
+    };
+    const thread = std.Thread.spawn(.{}, archiveThread, .{job}) catch {
+        freeArchiveJob(job);
+        on_done(ctx, false, "no se pudo crear hilo");
+        return;
+    };
+    thread.detach();
+}
+
+pub fn zig_compress_split(
+    sevenzz_path: [*:0]const u8,
+    src_paths: [*]const [*:0]const u8,
+    src_count: u64,
+    dst_archive: [*:0]const u8,
+    volume_size_mb: u32,
+    ctx: ?*anyopaque,
+    on_progress: ZigProgressCallback,
+    on_done: ZigCompletionCallback,
+) callconv(.c) void {
+    var paths = gpa.alloc([:0]u8, src_count) catch {
+        on_done(ctx, false, "sin memoria");
+        return;
+    };
+    for (src_paths[0..src_count], 0..) |p, i| {
+        paths[i] = gpa.dupeZ(u8, std.mem.sliceTo(p, 0)) catch {
+            for (paths[0..i]) |prev| gpa.free(prev);
+            gpa.free(paths);
+            on_done(ctx, false, "sin memoria");
+            return;
+        };
+    }
+    const job = gpa.create(ArchiveJob) catch {
+        for (paths) |p| gpa.free(p);
+        gpa.free(paths);
+        on_done(ctx, false, "sin memoria");
+        return;
+    };
+    job.* = .{
+        .sevenzz_path = gpa.dupeZ(u8, std.mem.sliceTo(sevenzz_path, 0)) catch {
+            for (paths) |p| gpa.free(p);
+            gpa.free(paths);
+            gpa.destroy(job);
+            on_done(ctx, false, "sin memoria");
+            return;
+        },
+        .src_paths = paths,
+        .archive_path = gpa.dupeZ(u8, std.mem.sliceTo(dst_archive, 0)) catch {
+            for (paths) |p| gpa.free(p);
+            gpa.free(paths);
+            gpa.destroy(job);
+            on_done(ctx, false, "sin memoria");
+            return;
+        },
+        .dst_dir = null,
+        .is_compress = true,
+        .volume_size_mb = volume_size_mb,
         .ctx = ctx,
         .on_progress = on_progress,
         .on_done = on_done,
@@ -109,6 +170,7 @@ pub fn zig_uncompress(
             return;
         },
         .is_compress = false,
+        .volume_size_mb = 0,
         .ctx = ctx,
         .on_progress = on_progress,
         .on_done = on_done,
@@ -148,10 +210,18 @@ fn runArchive(job: *ArchiveJob) !void {
 
     try argv.append(std.mem.sliceTo(job.sevenzz_path, 0));
 
+    // Build -v flag outside the if/else so its lifetime covers spawn+wait
+    var vol_flag: ?[]u8 = null;
+    defer if (vol_flag) |f| gpa.free(f);
+
     if (job.is_compress) {
         try argv.append("a");
         try argv.append("-y");
         try argv.append("-bsp1"); // enable progress to stdout
+        if (job.volume_size_mb > 0) {
+            vol_flag = try std.fmt.allocPrint(gpa, "-v{d}m", .{job.volume_size_mb});
+            try argv.append(vol_flag.?);
+        }
         try argv.append(std.mem.sliceTo(job.archive_path, 0));
         if (job.src_paths) |paths| {
             for (paths) |p| try argv.append(std.mem.sliceTo(p, 0));

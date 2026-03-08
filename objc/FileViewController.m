@@ -382,6 +382,7 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
                 [[menu addItemWithTitle:@"Descomprimir" action:@selector(uncompressSelected:) keyEquivalent:@""] setTarget:self];
             } else {
                 [[menu addItemWithTitle:@"Comprimir" action:@selector(compressSelected:) keyEquivalent:@""] setTarget:self];
+                [[menu addItemWithTitle:@"Dividir en partes" action:@selector(splitSelected:) keyEquivalent:@""] setTarget:self];
             }
         }
         [menu addItem:[NSMenuItem separatorItem]];
@@ -750,6 +751,73 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
     for (NSUInteger i = 0; i < count; i++) free(owned[i]);
     free(owned);
     free(cPaths);
+}
+
+- (IBAction)splitSelected:(id)sender {
+    NSArray<NSString *> *paths = [self selectedPaths];
+    if (!paths.count) return;
+
+    NSString *sevenzzPath = [self sevenzzPath];
+    if (!sevenzzPath) {
+        [self showErrorMessage:@"No se encontró el binario 7zz"];
+        return;
+    }
+
+    // Input panel asking for the part size in MB
+    NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 24)];
+    field.placeholderString = @"Ej: 100";
+    field.font = [NSFont systemFontOfSize:13];
+    field.stringValue = @"100";
+
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText     = @"Dividir en partes";
+    alert.informativeText = @"Tamaño de cada parte en MB:";
+    [alert addButtonWithTitle:@"Dividir"];
+    [alert addButtonWithTitle:@"Cancelar"];
+    alert.accessoryView = field;
+
+    NSWindow *parentWin = self.view.window;
+    [alert beginSheetModalForWindow:parentWin completionHandler:^(NSModalResponse resp) {
+        if (resp != NSAlertFirstButtonReturn) return;
+
+        NSString *input = [field.stringValue
+            stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSInteger sizeMB = input.integerValue;
+        if (sizeMB <= 0) {
+            [self showErrorMessage:@"El tamaño debe ser un número mayor que 0"];
+            return;
+        }
+
+        NSString *baseName = paths.firstObject.lastPathComponent.stringByDeletingPathExtension;
+        NSString *archive  = [self->_currentPath stringByAppendingPathComponent:
+                              [baseName stringByAppendingString:@".7z"]];
+
+        NSUInteger count = paths.count;
+        const char **cPaths = malloc(count * sizeof(char *));
+        char **owned = malloc(count * sizeof(char *));
+        if (!cPaths || !owned) { free(cPaths); free(owned); return; }
+        for (NSUInteger i = 0; i < count; i++) {
+            owned[i] = strdup(paths[i].UTF8String);
+            cPaths[i] = owned[i];
+        }
+
+        __weak typeof(self) wself = self;
+        ProgressWindowController *pwc = [[ProgressWindowController alloc]
+                                            initWithTitle:@"Dividiendo"
+                                        destinationFolder:self->_currentPath
+                                          refreshCallback:^{ [wself loadPath:wself.currentPath]; }];
+        [pwc showWindow:nil];
+        void *ctx = (__bridge_retained void *)pwc;
+        zig_compress_split(sevenzzPath.UTF8String, cPaths, (uint64_t)count,
+                           archive.UTF8String, (uint32_t)sizeMB,
+                           ctx, progressCb, doneCb);
+        for (NSUInteger i = 0; i < count; i++) free(owned[i]);
+        free(owned);
+        free(cPaths);
+    }];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [alert.window makeFirstResponder:field];
+    });
 }
 
 - (IBAction)uncompressSelected:(id)sender {
