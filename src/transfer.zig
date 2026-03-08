@@ -208,11 +208,35 @@ fn runTransfer(job: *TransferJob) !void {
     // Format: "  104857600  50%  399.88MB/s    0:00:00 (xfr#10, to-chk=10/21)"
     // Intermediate lines may lack the "(xfr#..., to-chk=...)" part.
     // The percentage is overall progress; the time field is elapsed (not ETA).
+    //
+    // After data transfer completes (100%), rsync keeps running while the OS
+    // flushes writes to disk. During this phase we send progress > 1.0 so the
+    // UI can show "Sincronizando…" with an indeterminate progress bar.
+    // Timer context: when we first hit 100%, spawn a thread that waits
+    // briefly and then sends the sync-phase signal. This is needed because
+    // rsync keeps stdout open until process exit — the readStreaming loop
+    // blocks during the OS write-cache flush, so we can't signal from there.
+    const SyncSignalCtx = struct {
+        job_ptr: *TransferJob,
+        fn run(ctx: *@This()) void {
+            // Wait a moment — if rsync exits quickly (SSD), doneCb will close
+            // the window before this fires. On slow media, this switches the UI
+            // to "Sincronizando…" during the flush.
+            // Sleep 500ms using libc nanosleep (Zig 0.16 sleep requires Io)
+            var ts = std.c.timespec{ .sec = 0, .nsec = 500_000_000 };
+            _ = std.c.nanosleep(&ts, &ts);
+            ctx.job_ptr.on_progress(ctx.job_ptr.ctx, 1.5, 0, 0, 0, 0);
+        }
+    };
+    var sync_signal_ctx = SyncSignalCtx{ .job_ptr = job };
+    var sync_thread: ?std.Thread = null;
+
     {
         const stdout = child.stdout.?;
         var line_buf: [1024]u8 = undefined;
         var line_len: usize = 0;
         var read_buf: [4096]u8 = undefined;
+        var sent_complete = false;
         while (true) {
             const n = stdout.readStreaming(io, &.{&read_buf}) catch break;
             if (n == 0) break;
@@ -221,25 +245,45 @@ fn runTransfer(job: *TransferJob) !void {
                     if (line_len > 0) {
                         const info = parseRsyncProgress(line_buf[0..line_len]);
                         if (info.progress >= 0) {
-                            // Estimate ETA: remaining_bytes / speed
-                            var eta: i64 = 0;
-                            if (info.speed > 0 and info.progress > 0 and info.progress < 1.0) {
-                                const total_est = @as(f64, @floatFromInt(info.bytes)) / info.progress;
-                                const remaining = total_est - @as(f64, @floatFromInt(info.bytes));
-                                eta = @intFromFloat(remaining / info.speed);
+                            if (info.progress >= 1.0 and !sent_complete) {
+                                sent_complete = true;
+                                // Report the final 100% progress
+                                const total_bytes: u64 = if (info.progress > 0)
+                                    @intFromFloat(@as(f64, @floatFromInt(info.bytes)) / info.progress)
+                                else
+                                    0;
+                                job.on_progress(
+                                    job.ctx,
+                                    info.progress,
+                                    info.bytes,
+                                    total_bytes,
+                                    info.speed,
+                                    0,
+                                );
+                                // Spawn timer thread to signal sync phase after 500ms
+                                sync_thread = std.Thread.spawn(.{}, SyncSignalCtx.run, .{&sync_signal_ctx}) catch null;
+                            } else if (!sent_complete) {
+                                // Normal progress (< 100%)
+                                var eta: i64 = 0;
+                                if (info.speed > 0 and info.progress > 0 and info.progress < 1.0) {
+                                    const total_est = @as(f64, @floatFromInt(info.bytes)) / info.progress;
+                                    const remaining = total_est - @as(f64, @floatFromInt(info.bytes));
+                                    eta = @intFromFloat(remaining / info.speed);
+                                }
+                                const total_bytes: u64 = if (info.progress > 0)
+                                    @intFromFloat(@as(f64, @floatFromInt(info.bytes)) / info.progress)
+                                else
+                                    0;
+                                job.on_progress(
+                                    job.ctx,
+                                    info.progress,
+                                    info.bytes,
+                                    total_bytes,
+                                    info.speed,
+                                    eta,
+                                );
                             }
-                            const total_bytes: u64 = if (info.progress > 0)
-                                @intFromFloat(@as(f64, @floatFromInt(info.bytes)) / info.progress)
-                            else
-                                0;
-                            job.on_progress(
-                                job.ctx,
-                                info.progress,
-                                info.bytes,
-                                total_bytes,
-                                info.speed,
-                                eta,
-                            );
+                            // After sent_complete, ignore further lines (timer handles sync UI)
                         }
                         line_len = 0;
                     }
@@ -256,6 +300,11 @@ fn runTransfer(job: *TransferJob) !void {
     stderrThread.join();
 
     const term = try child.wait(io);
+
+    // Join the sync signal timer thread (if spawned) before we return,
+    // since sync_signal_ctx lives on our stack.
+    if (sync_thread) |t| t.join();
+
     const exit_code: u8 = switch (term) {
         .exited => |c2| c2,
         else => 255,

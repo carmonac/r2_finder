@@ -105,6 +105,20 @@
             totalBytes:(uint64_t)total
                  speed:(double)bytesPerSec
                etaSecs:(int64_t)eta {
+
+    // progress > 1.0 signals the sync-to-disk phase (OS write cache flush)
+    if (progress > 1.0) {
+        if (!_progressBar.isIndeterminate) {
+            _progressBar.indeterminate = YES;
+            [_progressBar startAnimation:nil];
+        }
+        NSString *sizeStr = total > 0
+            ? [NSString stringWithFormat:@"%@", [self formattedSize:total]]
+            : [self formattedSize:bytesDone];
+        _speedLabel.stringValue = [NSString stringWithFormat:@"%@   Sincronizando…", sizeStr];
+        return;
+    }
+
     if (_progressBar.isIndeterminate) {
         _progressBar.indeterminate = NO;
         [_progressBar stopAnimation:nil];
