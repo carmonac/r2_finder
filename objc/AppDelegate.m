@@ -84,6 +84,17 @@
                         action:@selector(performClose:)
                  keyEquivalent:@"w"];
 
+    // ── Edición ──────────────────────────────────────────────────────────────
+    NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edición"];
+    [main addItemWithTitle:@"Edición" action:nil keyEquivalent:@""].submenu = editMenu;
+
+    // target = nil → first-responder chain reaches FileViewController
+    [editMenu addItemWithTitle:@"Copiar"  action:@selector(copySelected:) keyEquivalent:@"c"];
+    [editMenu addItemWithTitle:@"Cortar"  action:@selector(cutSelected:)  keyEquivalent:@"x"];
+    [editMenu addItemWithTitle:@"Pegar"   action:@selector(pasteHere:)    keyEquivalent:@"v"];
+    [editMenu addItem:[NSMenuItem separatorItem]];
+    [editMenu addItemWithTitle:@"Seleccionar todo" action:@selector(selectAll:) keyEquivalent:@"a"];
+
     // ── Ventana ───────────────────────────────────────────────────────────────
     NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Ventana"];
     [main addItemWithTitle:@"Ventana" action:nil keyEquivalent:@""].submenu = windowMenu;

@@ -17,26 +17,28 @@
 @property (nonatomic)         uint64_t  size;
 @property (nonatomic)         int64_t   mtime;
 @property (nonatomic, strong) NSImage  *icon;
+@property (nonatomic, strong) NSMutableArray<FileEntry *> *children;
+@property (nonatomic)         BOOL      childrenLoaded;
 @end
 @implementation FileEntry @end
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ContextMenuTableView – NSTableView subclass that supports per-row context menus
+// ContextMenuOutlineView – NSOutlineView subclass that supports per-row context menus
 // ─────────────────────────────────────────────────────────────────────────────
 
-@protocol ContextMenuTableViewDelegate <NSTableViewDelegate>
+@protocol ContextMenuOutlineViewDelegate <NSOutlineViewDelegate>
 @optional
-- (NSMenu *)contextMenuForTableView:(NSTableView *)tv clickedRow:(NSInteger)row;
+- (NSMenu *)contextMenuForOutlineView:(NSOutlineView *)ov clickedRow:(NSInteger)row;
 @end
 
-@interface ContextMenuTableView : NSTableView @end
-@implementation ContextMenuTableView
+@interface ContextMenuOutlineView : NSOutlineView @end
+@implementation ContextMenuOutlineView
 - (NSMenu *)menuForEvent:(NSEvent *)event {
     CGPoint loc = [self convertPoint:event.locationInWindow fromView:nil];
     NSInteger row = [self rowAtPoint:loc];
-    id<ContextMenuTableViewDelegate> d = (id<ContextMenuTableViewDelegate>)self.delegate;
-    if ([d respondsToSelector:@selector(contextMenuForTableView:clickedRow:)])
-        return [d contextMenuForTableView:self clickedRow:row];
+    id<ContextMenuOutlineViewDelegate> d = (id<ContextMenuOutlineViewDelegate>)self.delegate;
+    if ([d respondsToSelector:@selector(contextMenuForOutlineView:clickedRow:)])
+        return [d contextMenuForOutlineView:self clickedRow:row];
     return [super menuForEvent:event];
 }
 @end
@@ -145,8 +147,9 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 // FileViewController
 // ─────────────────────────────────────────────────────────────────────────────
 
-@interface FileViewController () <NSTableViewDataSource,
-                                  ContextMenuTableViewDelegate,
+@interface FileViewController () <NSOutlineViewDataSource,
+                                  NSOutlineViewDelegate,
+                                  ContextMenuOutlineViewDelegate,
                                   NSCollectionViewDataSource,
                                   NSCollectionViewDelegate,
                                   ContextMenuCollectionViewDelegate,
@@ -158,7 +161,7 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
                                   QLPreviewPanelDataSource,
                                   QLPreviewPanelDelegate>
 @property (nonatomic, strong) NSScrollView              *scrollView;      // list view
-@property (nonatomic, strong) ContextMenuTableView      *tableView;
+@property (nonatomic, strong) ContextMenuOutlineView     *outlineView;
 @property (nonatomic, strong) NSScrollView              *iconScrollView;  // icon view
 @property (nonatomic, strong) ContextMenuCollectionView *collectionView;
 @property (nonatomic, strong) NSBrowser                 *browser;         // column view
@@ -168,7 +171,6 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 @property (nonatomic, copy)   NSString                 *currentPath;   // also satisfies the readonly public decl
 @property (nonatomic, strong) NSArray<NSString *>      *clipboardPaths;
 @property (nonatomic)         ClipboardOperation         clipboardOp;
-@property (nonatomic, strong) NSTextField              *renameField;
 @property (nonatomic)         NSInteger                  renameRow;
 @end
 
@@ -204,22 +206,25 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
     statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:statusLabel];
 
-    // Table view
-    _tableView = [[ContextMenuTableView alloc] initWithFrame:NSZeroRect];
-    _tableView.allowsMultipleSelection = YES;
-    _tableView.allowsColumnResizing    = YES;
-    _tableView.allowsColumnReordering  = NO;
-    _tableView.rowSizeStyle            = NSTableViewRowSizeStyleMedium;
-    _tableView.gridStyleMask           = NSTableViewSolidHorizontalGridLineMask;
-    _tableView.dataSource              = self;
-    _tableView.delegate                = self;
-    [_tableView setDoubleAction:@selector(tableViewDoubleClicked:)];
+    // Outline view (replaces flat table view – supports expandable folders)
+    _outlineView = [[ContextMenuOutlineView alloc] initWithFrame:NSZeroRect];
+    _outlineView.allowsMultipleSelection = YES;
+    _outlineView.allowsColumnResizing    = YES;
+    _outlineView.allowsColumnReordering  = NO;
+    _outlineView.rowSizeStyle            = NSTableViewRowSizeStyleMedium;
+    _outlineView.gridStyleMask           = NSTableViewSolidHorizontalGridLineMask;
+    _outlineView.dataSource              = self;
+    _outlineView.delegate                = self;
+    _outlineView.indentationPerLevel     = 18;
+    _outlineView.autoresizesOutlineColumn = YES;
+    [_outlineView setDoubleAction:@selector(tableViewDoubleClicked:)];
 
     // Drag destination
-    [_tableView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
-    _tableView.draggingDestinationFeedbackStyle = NSTableViewDraggingDestinationFeedbackStyleRegular;
+    [_outlineView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+    _outlineView.draggingDestinationFeedbackStyle = NSTableViewDraggingDestinationFeedbackStyleRegular;
 
     // Columns
+    BOOL firstColumn = YES;
     for (NSDictionary *def in @[
         @{ @"id": @"name", @"title": @"Nombre",                @"width": @340 },
         @{ @"id": @"size", @"title": @"Tamaño",                @"width": @100 },
@@ -231,13 +236,17 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
         col.width = [def[@"width"] floatValue];
         col.minWidth = 60;
         col.sortDescriptorPrototype = [NSSortDescriptor sortDescriptorWithKey:def[@"id"] ascending:YES];
-        [_tableView addTableColumn:col];
+        [_outlineView addTableColumn:col];
+        if (firstColumn) {
+            _outlineView.outlineTableColumn = col;   // disclosure triangles in Name column
+            firstColumn = NO;
+        }
     }
 
     _scrollView = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     _scrollView.hasVerticalScroller   = YES;
     _scrollView.hasHorizontalScroller = NO;
-    _scrollView.documentView          = _tableView;
+    _scrollView.documentView          = _outlineView;
     _scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:_scrollView];
 
@@ -340,6 +349,7 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 }
 
 - (void)keyDown:(NSEvent *)event {
+    if (_renameRow >= 0) return;       // let the rename field handle all keys
     unichar c = [event.characters characterAtIndex:0];
     if (c == '\r')              { [self openSelected:nil];   return; }
     if (c == NSDeleteCharacter) { [self deleteSelected:nil]; return; }
@@ -387,7 +397,7 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 }
 
 - (void)reloadAllViews {
-    [_tableView reloadData];
+    [_outlineView reloadData];
     [_collectionView reloadData];
     if (_viewMode == FileViewModeColumns)
         [self loadBrowserFromPath:_currentPath];
@@ -431,41 +441,79 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-#pragma mark – NSTableViewDataSource
+#pragma mark – Children loading helper
 // ─────────────────────────────────────────────────────────────────────────────
 
-- (NSInteger)numberOfRowsInTableView:(NSTableView *)tv {
-    return (NSInteger)_entries.count;
+- (void)loadChildrenForEntry:(FileEntry *)entry {
+    if (entry.childrenLoaded) return;
+    entry.childrenLoaded = YES;
+    entry.children = [NSMutableArray array];
+    ZigDirListing *listing = zig_list_directory(entry.path.UTF8String);
+    if (!listing) return;
+    NSWorkspace *ws = [NSWorkspace sharedWorkspace];
+    for (uint64_t i = 0; i < listing->count; i++) {
+        ZigDirEntry e = listing->entries[i];
+        if (!s_showHidden && e.name[0] == '.') continue;
+        FileEntry *fe = [[FileEntry alloc] init];
+        fe.name      = @(e.name);
+        fe.path      = @(e.path);
+        fe.isDir     = (BOOL)e.is_dir;
+        fe.isSymlink = (BOOL)e.is_symlink;
+        fe.size      = e.size;
+        fe.mtime     = e.mtime;
+        fe.icon      = [ws iconForFile:fe.path];
+        fe.icon.size = NSMakeSize(16, 16);
+        [entry.children addObject:fe];
+    }
+    zig_free_dir_listing(listing);
 }
 
-- (id)tableView:(NSTableView *)tv objectValueForTableColumn:(NSTableColumn *)col row:(NSInteger)row {
-    return _entries[(NSUInteger)row];
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma mark – NSOutlineViewDataSource
+// ─────────────────────────────────────────────────────────────────────────────
+
+- (NSInteger)outlineView:(NSOutlineView *)ov numberOfChildrenOfItem:(id)item {
+    if (!item) return (NSInteger)_entries.count;  // root
+    FileEntry *entry = (FileEntry *)item;
+    if (!entry.isDir) return 0;
+    [self loadChildrenForEntry:entry];
+    return (NSInteger)entry.children.count;
 }
 
-- (void)tableView:(NSTableView *)tv sortDescriptorsDidChange:(NSArray<NSSortDescriptor *> *)old {
-    NSSortDescriptor *sd = tv.sortDescriptors.firstObject;
+- (id)outlineView:(NSOutlineView *)ov child:(NSInteger)index ofItem:(id)item {
+    if (!item) return _entries[(NSUInteger)index];
+    return ((FileEntry *)item).children[(NSUInteger)index];
+}
+
+- (BOOL)outlineView:(NSOutlineView *)ov isItemExpandable:(id)item {
+    return ((FileEntry *)item).isDir;
+}
+
+- (void)outlineView:(NSOutlineView *)ov sortDescriptorsDidChange:(NSArray<NSSortDescriptor *> *)old {
+    NSSortDescriptor *sd = ov.sortDescriptors.firstObject;
     if (!sd) return;
-    [_entries sortUsingComparator:^NSComparisonResult(FileEntry *a, FileEntry *b) {
+    NSComparator cmp = ^NSComparisonResult(FileEntry *a, FileEntry *b) {
         NSComparisonResult r = NSOrderedSame;
         if ([sd.key isEqualToString:@"name"])      r = [a.name localizedCaseInsensitiveCompare:b.name];
         else if ([sd.key isEqualToString:@"size"]) r = [@(a.size)  compare:@(b.size)];
         else if ([sd.key isEqualToString:@"date"]) r = [@(a.mtime) compare:@(b.mtime)];
         else if ([sd.key isEqualToString:@"kind"]) r = [@(a.isDir) compare:@(b.isDir)];
         return sd.ascending ? r : -r;
-    }];
-    [tv reloadData];
+    };
+    [_entries sortUsingComparator:cmp];
+    [ov reloadData];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-#pragma mark – NSTableViewDelegate (cell views)
+#pragma mark – NSOutlineViewDelegate (cell views)
 // ─────────────────────────────────────────────────────────────────────────────
 
-- (NSView *)tableView:(NSTableView *)tv viewForTableColumn:(NSTableColumn *)col row:(NSInteger)row {
-    FileEntry *entry = _entries[(NSUInteger)row];
+- (NSView *)outlineView:(NSOutlineView *)ov viewForTableColumn:(NSTableColumn *)col item:(id)item {
+    FileEntry *entry = (FileEntry *)item;
     NSString  *ident = col.identifier;
 
     if ([ident isEqualToString:@"name"]) {
-        NSTableCellView *cell = [tv makeViewWithIdentifier:@"NameCell" owner:self];
+        NSTableCellView *cell = [ov makeViewWithIdentifier:@"NameCell" owner:self];
         if (!cell) {
             cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
             cell.identifier = @"NameCell";
@@ -496,7 +544,7 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
         return cell;
     }
 
-    NSTableCellView *cell = [tv makeViewWithIdentifier:@"BasicCell" owner:self];
+    NSTableCellView *cell = [ov makeViewWithIdentifier:@"BasicCell" owner:self];
     if (!cell) {
         cell = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
         cell.identifier = @"BasicCell";
@@ -566,9 +614,10 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
         if (![sel containsObject:ip]) {
             cv.selectionIndexPaths = [NSSet setWithObject:ip];
         }
-        return [self contextMenuForTableView:_tableView clickedRow:(NSInteger)ip.item];
+        FileEntry *entry = (ip.item < _entries.count) ? _entries[ip.item] : nil;
+        return [self contextMenuForEntry:entry];
     }
-    return [self contextMenuForTableView:_tableView clickedRow:-1];
+    return [self contextMenuForEntry:nil];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -743,18 +792,20 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 - (IBAction)tableViewDoubleClicked:(id)sender {
-    NSInteger row = _tableView.clickedRow;
+    NSInteger row = _outlineView.clickedRow;
     if (row < 0) return;
-    [self openEntryAtIndex:(NSUInteger)row];
+    FileEntry *entry = [_outlineView itemAtRow:row];
+    if (!entry) return;
+    [self openEntry:entry];
 }
 
 - (void)collectionViewDidDoubleClick:(NSCollectionView *)cv atIndexPath:(NSIndexPath *)ip {
-    [self openEntryAtIndex:ip.item];
+    if (ip.item < _entries.count)
+        [self openEntry:_entries[ip.item]];
 }
 
-- (void)openEntryAtIndex:(NSUInteger)idx {
-    if (idx >= _entries.count) return;
-    FileEntry *e = _entries[idx];
+- (void)openEntry:(FileEntry *)e {
+    if (!e) return;
     if (e.isDir) {
         [self loadPath:e.path];
         [self.delegate fileViewController:self didNavigateToPath:e.path];
@@ -764,20 +815,23 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-#pragma mark – Context menu (ContextMenuTableViewDelegate)
+#pragma mark – Context menu (ContextMenuOutlineViewDelegate)
 // ─────────────────────────────────────────────────────────────────────────────
 
-- (NSMenu *)contextMenuForTableView:(NSTableView *)tv clickedRow:(NSInteger)row {
+- (NSMenu *)contextMenuForOutlineView:(NSOutlineView *)ov clickedRow:(NSInteger)row {
+    FileEntry *entry = (row >= 0) ? [ov itemAtRow:row] : nil;
     if (row >= 0) {
-        // Only change selection if the clicked row is not already selected
-        // (preserves multi-selection for context menu actions)
-        if (![tv.selectedRowIndexes containsIndex:(NSUInteger)row]) {
-            [tv selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
+        if (![ov.selectedRowIndexes containsIndex:(NSUInteger)row]) {
+            [ov selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
                 byExtendingSelection:NO];
         }
     }
+    return [self contextMenuForEntry:entry];
+}
+
+- (NSMenu *)contextMenuForEntry:(FileEntry *)entry {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
-    if (row >= 0) {
+    if (entry) {
         [[menu addItemWithTitle:@"Abrir"               action:@selector(openSelected:)     keyEquivalent:@""] setTarget:self];
         [menu addItem:[NSMenuItem separatorItem]];
         [[menu addItemWithTitle:@"Copiar"              action:@selector(copySelected:)     keyEquivalent:@""] setTarget:self];
@@ -788,7 +842,6 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
         [menu addItem:[NSMenuItem separatorItem]];
         // Compress / Uncompress
         {
-            FileEntry *entry = _entries[(NSUInteger)row];
             NSString *ext = entry.path.pathExtension.lowercaseString;
             BOOL isArchive = [ext isEqualToString:@"7z"] || [ext isEqualToString:@"zip"] ||
                              [ext isEqualToString:@"rar"] || [ext isEqualToString:@"tar"] ||
@@ -873,8 +926,9 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
             }];
         }
     } else {
-        [_tableView.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-            [paths addObject:self.entries[idx].path];
+        [_outlineView.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
+            FileEntry *e = [self->_outlineView itemAtRow:idx];
+            if (e) [paths addObject:e.path];
         }];
     }
     return paths;
@@ -1100,47 +1154,68 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
 }
 
 - (IBAction)renameSelected:(id)sender {
-    NSInteger row = _tableView.selectedRow;
+    NSInteger row = _outlineView.selectedRow;
     if (row < 0) return;
-    FileEntry *entry = _entries[(NSUInteger)row];
-    NSRect rowRect = [_tableView rectOfRow:row];
-    NSRect nameRect = rowRect;
-    nameRect.origin.x   += 26;
-    nameRect.size.width -= 26;
-    nameRect.size.height = 22;
-    _renameRow   = row;
-    _renameField = [[NSTextField alloc] initWithFrame:
-        [_tableView.enclosingScrollView convertRect:nameRect fromView:_tableView]];
-    _renameField.stringValue   = entry.name;
-    _renameField.font          = [NSFont systemFontOfSize:13];
-    _renameField.delegate      = self;
-    _renameField.focusRingType = NSFocusRingTypeDefault;
-    [_tableView.enclosingScrollView addSubview:_renameField];
-    [self.view.window makeFirstResponder:_renameField];
-    [_renameField selectText:nil];
+    _renameRow = row;
+    // Delay activation so the window fully settles after context-menu dismiss.
+    [self performSelector:@selector(beginInlineRename) withObject:nil afterDelay:0.15];
+}
+
+- (void)beginInlineRename {
+    if (_renameRow < 0) return;
+    NSInteger nameCol = [_outlineView columnWithIdentifier:@"name"];
+    if (nameCol < 0) { _renameRow = -1; return; }
+    NSTableCellView *cell = [_outlineView viewAtColumn:nameCol
+                                                   row:_renameRow
+                                       makeIfNecessary:YES];
+    if (!cell) { _renameRow = -1; return; }
+    cell.textField.editable   = YES;
+    cell.textField.selectable = YES;
+    cell.textField.delegate   = self;
+    // Use the outline view's own editing path to properly install
+    // the field editor within the cell.
+    [_outlineView editColumn:nameCol row:_renameRow withEvent:nil select:YES];
+}
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)sel {
+    if (_renameRow < 0) return NO;
+    if (sel == @selector(cancelOperation:)) {
+        // Escape – cancel rename, restore original name
+        FileEntry *entry = [_outlineView itemAtRow:_renameRow];
+        NSTextField *tf = (NSTextField *)control;
+        tf.stringValue = entry ? entry.name : @"";
+        tf.editable    = NO;
+        tf.selectable  = NO;
+        _renameRow = -1;
+        [self.view.window makeFirstResponder:_outlineView];
+        return YES;
+    }
+    return NO;
 }
 
 - (void)controlTextDidEndEditing:(NSNotification *)note {
-    if (note.object != _renameField) return;
-    NSString *newName = _renameField.stringValue;
-    [_renameField removeFromSuperview];
-    _renameField = nil;
-    if (!newName.length || _renameRow < 0) return;
-    FileEntry *entry   = _entries[(NSUInteger)_renameRow];
-    NSString *newPath  = [entry.path.stringByDeletingLastPathComponent
-                          stringByAppendingPathComponent:newName];
+    if (_renameRow < 0) return;
+    NSTextField *tf  = note.object;
+    NSString *newName = tf.stringValue;
+    tf.editable   = NO;
+    tf.selectable = NO;
+    FileEntry *entry = [_outlineView itemAtRow:_renameRow];
+    _renameRow = -1;
+    if (!entry || !newName.length || [newName isEqualToString:entry.name]) return;
+    NSString *newPath = [entry.path.stringByDeletingLastPathComponent
+                         stringByAppendingPathComponent:newName];
     char errBuf[512] = {0};
     if (!zig_rename(entry.path.UTF8String, newPath.UTF8String, errBuf, sizeof(errBuf)))
         [self showErrorMessage:@(errBuf)];
     else
         [self loadPath:_currentPath];
-    _renameRow = -1;
 }
 
 - (IBAction)showInfoSelected:(id)sender {
     NSMutableArray<NSURL *> *urls = [NSMutableArray array];
-    [_tableView.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-        [urls addObject:[NSURL fileURLWithPath:self.entries[idx].path]];
+    [_outlineView.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
+        FileEntry *e = [self->_outlineView itemAtRow:idx];
+        if (e) [urls addObject:[NSURL fileURLWithPath:e.path]];
     }];
     if (urls.count) [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:urls];
 }
@@ -1271,9 +1346,10 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
 }
 
 - (IBAction)uncompressSelected:(id)sender {
-    NSInteger row = _tableView.selectedRow;
+    NSInteger row = _outlineView.selectedRow;
     if (row < 0) return;
-    FileEntry *entry = _entries[(NSUInteger)row];
+    FileEntry *entry = [_outlineView itemAtRow:row];
+    if (!entry) return;
 
     NSString *sevenzzPath = [self sevenzzPath];
     if (!sevenzzPath) {
@@ -1329,13 +1405,12 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
     return NSDragOperationCopy | NSDragOperationMove;
 }
 
-- (BOOL)tableView:(NSTableView *)tv
-       writeRowsWithIndexes:(NSIndexSet *)rowIndexes
-               toPasteboard:(NSPasteboard *)pb {
+- (BOOL)outlineView:(NSOutlineView *)ov
+       writeItems:(NSArray *)items
+     toPasteboard:(NSPasteboard *)pb {
     NSMutableArray<NSURL *> *urls = [NSMutableArray array];
-    [rowIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-        [urls addObject:[NSURL fileURLWithPath:self.entries[idx].path]];
-    }];
+    for (FileEntry *entry in items)
+        [urls addObject:[NSURL fileURLWithPath:entry.path]];
     [pb clearContents];
     [pb writeObjects:urls];
     return YES;
@@ -1345,33 +1420,25 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
 #pragma mark – Drag destination
 // ─────────────────────────────────────────────────────────────────────────────
 
-- (NSDragOperation)tableView:(NSTableView *)tv
-                validateDrop:(id<NSDraggingInfo>)info
-                 proposedRow:(NSInteger)row
-       proposedDropOperation:(NSTableViewDropOperation)op {
-    if (op == NSTableViewDropOn && row >= 0 && (NSUInteger)row < _entries.count) {
-        if (!_entries[(NSUInteger)row].isDir) return NSDragOperationNone;
-    } else if (op == NSTableViewDropAbove) {
-        // Retarget "between rows" drops to the whole table (drop into current dir)
-        [tv setDropRow:-1 dropOperation:NSTableViewDropOn];
-    }
-    // Support both copy (default) and move (Option key held)
+- (NSDragOperation)outlineView:(NSOutlineView *)ov
+                  validateDrop:(id<NSDraggingInfo>)info
+                  proposedItem:(id)item
+            proposedChildIndex:(NSInteger)index {
+    if (item && !((FileEntry *)item).isDir) return NSDragOperationNone;
     NSDragOperation mask = info.draggingSourceOperationMask;
     if (mask & NSDragOperationMove) return NSDragOperationMove;
     return NSDragOperationCopy;
 }
 
-- (BOOL)tableView:(NSTableView *)tv
-       acceptDrop:(id<NSDraggingInfo>)info
-              row:(NSInteger)row
-    dropOperation:(NSTableViewDropOperation)op {
+- (BOOL)outlineView:(NSOutlineView *)ov
+         acceptDrop:(id<NSDraggingInfo>)info
+               item:(id)item
+         childIndex:(NSInteger)index {
     NSArray<NSURL *> *urls = [info.draggingPasteboard
         readObjectsForClasses:@[[NSURL class]]
         options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
     if (!urls.count) return NO;
-    NSString *dstDir = (op == NSTableViewDropOn && row >= 0 && (NSUInteger)row < _entries.count
-                        && _entries[(NSUInteger)row].isDir)
-        ? _entries[(NSUInteger)row].path : _currentPath;
+    NSString *dstDir = item ? ((FileEntry *)item).path : _currentPath;
     NSMutableArray<NSString *> *paths = [NSMutableArray array];
     for (NSURL *u in urls) [paths addObject:u.path];
     BOOL isMove = (info.draggingSourceOperationMask & NSDragOperationMove) != 0;
@@ -1452,8 +1519,8 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
     return nil;
 }
 
-// QLPreviewPanelDelegate – keep the panel in sync when the table selection changes.
-- (void)tableViewSelectionDidChange:(NSNotification *)notification {
+// QLPreviewPanelDelegate – keep the panel in sync when the selection changes.
+- (void)outlineViewSelectionDidChange:(NSNotification *)notification {
     if ([QLPreviewPanel sharedPreviewPanelExists] && [QLPreviewPanel sharedPreviewPanel].isVisible)
         [[QLPreviewPanel sharedPreviewPanel] reloadData];
 }
