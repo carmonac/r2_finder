@@ -1212,12 +1212,97 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
 }
 
 - (IBAction)showInfoSelected:(id)sender {
-    NSMutableArray<NSURL *> *urls = [NSMutableArray array];
-    [_outlineView.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
-        FileEntry *e = [self->_outlineView itemAtRow:idx];
-        if (e) [urls addObject:[NSURL fileURLWithPath:e.path]];
-    }];
-    if (urls.count) [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:urls];
+    NSArray<NSString *> *paths = [self selectedPaths];
+    if (!paths.count) return;
+
+    // Show info for the first selected item
+    NSString *filePath = paths.firstObject;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:filePath error:nil];
+    if (!attrs) return;
+
+    NSURL *fileURL = [NSURL fileURLWithPath:filePath];
+    NSString *fileName = filePath.lastPathComponent;
+    BOOL isDir = [attrs[NSFileType] isEqualToString:NSFileTypeDirectory];
+
+    // Kind
+    NSString *kind;
+    if (isDir) {
+        kind = @"Carpeta";
+    } else {
+        kind = [self kindForPath:filePath];
+    }
+
+    // Size
+    NSString *sizeStr;
+    if (isDir) {
+        // Calculate folder size recursively
+        uint64_t totalSize = 0;
+        NSUInteger fileCount = 0;
+        NSDirectoryEnumerator *enumerator = [fm enumeratorAtURL:fileURL
+                                    includingPropertiesForKeys:@[NSURLFileSizeKey, NSURLIsRegularFileKey]
+                                                       options:0
+                                                  errorHandler:nil];
+        for (NSURL *url in enumerator) {
+            NSNumber *isFile = nil;
+            [url getResourceValue:&isFile forKey:NSURLIsRegularFileKey error:nil];
+            if (isFile.boolValue) {
+                NSNumber *fileSize = nil;
+                [url getResourceValue:&fileSize forKey:NSURLFileSizeKey error:nil];
+                totalSize += fileSize.unsignedLongLongValue;
+                fileCount++;
+            }
+        }
+        sizeStr = [NSString stringWithFormat:@"%@ (%lu archivos)",
+                   [self formattedSize:totalSize], (unsigned long)fileCount];
+    } else {
+        uint64_t bytes = [attrs[NSFileSize] unsignedLongLongValue];
+        sizeStr = [NSString stringWithFormat:@"%@ (%llu bytes)",
+                   [self formattedSize:bytes], bytes];
+    }
+
+    // Dates
+    NSDateFormatter *df = [[NSDateFormatter alloc] init];
+    df.dateStyle = NSDateFormatterLongStyle;
+    df.timeStyle = NSDateFormatterMediumStyle;
+
+    NSString *createdStr  = [df stringFromDate:attrs[NSFileCreationDate]] ?: @"-";
+    NSString *modifiedStr = [df stringFromDate:attrs[NSFileModificationDate]] ?: @"-";
+
+    // Permissions
+    NSUInteger posix = [attrs[NSFilePosixPermissions] unsignedIntegerValue];
+    NSString *permsStr = [NSString stringWithFormat:@"%c%c%c%c%c%c%c%c%c",
+        (posix & 0400) ? 'r' : '-', (posix & 0200) ? 'w' : '-', (posix & 0100) ? 'x' : '-',
+        (posix & 0040) ? 'r' : '-', (posix & 0020) ? 'w' : '-', (posix & 0010) ? 'x' : '-',
+        (posix & 0004) ? 'r' : '-', (posix & 0002) ? 'w' : '-', (posix & 0001) ? 'x' : '-'];
+
+    // Icon
+    NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:filePath];
+    [icon setSize:NSMakeSize(64, 64)];
+
+    // Build the info panel
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = fileName;
+    alert.icon = icon;
+
+    NSString *info = [NSString stringWithFormat:
+        @"Tipo: %@\n\n"
+        @"Tamaño: %@\n\n"
+        @"Ubicación: %@\n\n"
+        @"Creado: %@\n\n"
+        @"Modificado: %@\n\n"
+        @"Permisos: %@",
+        kind, sizeStr, filePath.stringByDeletingLastPathComponent,
+        createdStr, modifiedStr, permsStr];
+
+    alert.informativeText = info;
+    [alert addButtonWithTitle:@"OK"];
+    [alert addButtonWithTitle:@"Mostrar en Finder"];
+
+    NSModalResponse response = [alert runModal];
+    if (response == NSAlertSecondButtonReturn) {
+        [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[fileURL]];
+    }
 }
 
 - (IBAction)moveHere:(id)sender {

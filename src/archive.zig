@@ -208,6 +208,81 @@ fn archiveThread(job: *ArchiveJob) void {
     };
 }
 
+/// Get file size using POSIX stat (thread-safe, no Io needed).
+fn posixStatSize(path_z: [*:0]const u8) u64 {
+    var st: std.c.Stat = undefined;
+    const AT_FDCWD = -2;
+    if (std.c.fstatat(AT_FDCWD, path_z, &st, 0) == 0) {
+        return @intCast(@max(0, st.size));
+    }
+    return 0;
+}
+
+/// Calculate total size of a path (recursively for directories) using Io.
+fn getPathSize(io: Io, path: []const u8) u64 {
+    if (Dir.openFileAbsolute(io, path, .{})) |f| {
+        defer f.close(io);
+        if (f.stat(io)) |st| return st.size else |_| {}
+    } else |_| {}
+    // If we couldn't open as file, try as directory
+    var dir = Dir.openDirAbsolute(io, path, .{ .iterate = true }) catch return 0;
+    defer dir.close(io);
+    var total: u64 = 0;
+    var path_buf: [Dir.max_path_bytes]u8 = undefined;
+    var iter = dir.iterate();
+    while (iter.next(io) catch null) |entry| {
+        const child_path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ path, entry.name }) catch continue;
+        total += getPathSize(io, child_path);
+    }
+    return total;
+}
+
+/// Get total output file size using POSIX stat (thread-safe).
+/// For split archives, sums all volume files (.001, .002, etc.).
+fn getOutputSize(archive_path: []const u8, is_split: bool) u64 {
+    if (!is_split) {
+        // Need a null-terminated copy
+        var buf: [Dir.max_path_bytes + 1]u8 = undefined;
+        if (archive_path.len >= buf.len) return 0;
+        @memcpy(buf[0..archive_path.len], archive_path);
+        buf[archive_path.len] = 0;
+        return posixStatSize(@ptrCast(buf[0..archive_path.len :0]));
+    }
+    // Sum all split volumes: archive.7z.001, archive.7z.002, ...
+    var total: u64 = 0;
+    var vol_buf: [Dir.max_path_bytes + 1]u8 = undefined;
+    for (1..10000) |i| {
+        const vol_path = std.fmt.bufPrintZ(&vol_buf, "{s}.{d:0>3}", .{ archive_path, i }) catch break;
+        const sz = posixStatSize(vol_path);
+        if (sz == 0 and i > 1) break; // no more volumes
+        total += sz;
+    }
+    return total;
+}
+
+/// File-size monitor context: polls output file(s) size and reports progress.
+const FileSizeMonitor = struct {
+    archive_path: []const u8,
+    total_input: u64,
+    is_split: bool,
+    done: std.atomic.Value(bool),
+    job: *ArchiveJob,
+
+    fn run(self: *@This()) void {
+        while (!self.done.load(.acquire)) {
+            // Sleep 300ms using libc nanosleep
+            var ts = std.c.timespec{ .sec = 0, .nsec = 300_000_000 };
+            _ = std.c.nanosleep(&ts, &ts);
+            if (self.done.load(.acquire)) break;
+            const output_sz = getOutputSize(self.archive_path, self.is_split);
+            if (self.total_input > 0 and output_sz > 0) {
+                const progress = @min(0.99, @as(f64, @floatFromInt(output_sz)) / @as(f64, @floatFromInt(self.total_input)));
+                self.job.on_progress(self.job.ctx, progress, output_sz, self.total_input, 0, 0);
+            }
+        }
+    }
+};
+
 fn runArchive(job: *ArchiveJob) !void {
     const io = getIo();
     var argv = std.array_list.Managed([]const u8).init(gpa);
@@ -252,6 +327,19 @@ fn runArchive(job: *ArchiveJob) !void {
         try argv.append(archive_path);
     }
 
+    // Calculate total input size for file-size-based progress monitoring
+    var total_input: u64 = 0;
+    if (job.is_compress) {
+        if (job.src_paths) |paths| {
+            for (paths) |p| {
+                total_input += getPathSize(io, std.mem.sliceTo(p, 0));
+            }
+        }
+    } else {
+        // For uncompress, use the archive file size as total
+        total_input = posixStatSize(job.archive_path);
+    }
+
     var child = try std.process.spawn(io, .{
         .argv = argv.items,
         .stdout = .pipe,
@@ -282,6 +370,17 @@ fn runArchive(job: *ArchiveJob) !void {
     var stderrCtx = DrainCtx{ .file = child.stderr.?, .io_handle = io };
     const stderrThread = try std.Thread.spawn(.{}, DrainCtx.run, .{&stderrCtx});
 
+    // Start file-size monitor thread for progress reporting
+    const archive_slice = std.mem.sliceTo(job.archive_path, 0);
+    var monitor = FileSizeMonitor{
+        .archive_path = archive_slice,
+        .total_input = total_input,
+        .is_split = job.volume_size_mb > 0,
+        .done = std.atomic.Value(bool).init(false),
+        .job = job,
+    };
+    const monitorThread = std.Thread.spawn(.{}, FileSizeMonitor.run, .{&monitor}) catch null;
+
     // Read stdout in this thread, parsing 7zz progress lines (e.g. " 42%" or "100%")
     {
         const stdout = child.stdout.?;
@@ -309,6 +408,10 @@ fn runArchive(job: *ArchiveJob) !void {
             }
         }
     }
+
+    // Stop the file-size monitor
+    monitor.done.store(true, .release);
+    if (monitorThread) |mt| mt.join();
 
     stderrThread.join();
 
