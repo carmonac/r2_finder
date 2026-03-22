@@ -3,7 +3,7 @@
 <!-- DOWNLOAD_SECTION_START -->
 ## Download
 
-[**R2 Finder v1.3.1 — Download DMG**](https://github.com/carmonac/r2_finder/releases/download/v1.3.1/R2.Finder.dmg)
+[**R2 Finder v1.3.2 — Download DMG**](https://github.com/carmonac/r2_finder/releases/download/v1.3.2/R2.Finder.dmg)
 
 Drag **R2 Finder.app** from the DMG to your `/Applications` folder.
 
