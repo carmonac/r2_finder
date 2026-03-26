@@ -1,6 +1,13 @@
 // SidebarViewController.m
 #import "SidebarViewController.h"
 #import "bridge.h"
+#import <sys/socket.h>
+#import <netinet/in.h>
+#import <arpa/inet.h>
+#import <ifaddrs.h>
+#import <net/if.h>
+#import <netdb.h>
+#import <fcntl.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma mark - Internal model
@@ -11,6 +18,7 @@
 @property (nonatomic, copy) NSString *path;
 @property (nonatomic, strong) NSImage *icon;
 @property (nonatomic) BOOL isHeader;          // section header row
+@property (nonatomic, copy) NSString *networkHostname;  // non-nil for network hosts
 @property (nonatomic, strong) NSMutableArray<SidebarItem *> *children;
 @end
 
@@ -31,13 +39,22 @@
     _children = [NSMutableArray array];
     return self;
 }
+- (instancetype)initNetworkHost:(NSString *)name hostname:(NSString *)hostname icon:(NSImage *)icon {
+    self = [super init];
+    _name = name;
+    _networkHostname = hostname;
+    _icon = icon;
+    _isHeader = NO;
+    _children = [NSMutableArray array];
+    return self;
+}
 @end
 
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma mark - SidebarViewController
 // ─────────────────────────────────────────────────────────────────────────────
 
-@interface SidebarViewController ()
+@interface SidebarViewController () <NSNetServiceBrowserDelegate, NSNetServiceDelegate>
 @property (nonatomic, strong) NSScrollView   *scrollView;
 @property (nonatomic, strong) NSOutlineView  *outlineView;
 @property (nonatomic, strong) NSMutableArray<SidebarItem *> *sections;
@@ -45,6 +62,10 @@
 // outlineViewSelectionDidChange: doesn't call back into the delegate (and
 // hence pushPath:) for a selection change we initiated ourselves.
 @property (nonatomic) BOOL isHighlighting;
+// Network discovery
+@property (nonatomic, strong) NSNetServiceBrowser *smbBrowser;
+@property (nonatomic, strong) NSMutableArray<NSNetService *> *discoveredServices;
+@property (nonatomic, strong) SidebarItem *networkHeader;
 @end
 
 @implementation SidebarViewController
@@ -64,6 +85,9 @@
     _outlineView.delegate                 = self;
     [_outlineView setTarget:self];
     [_outlineView setDoubleAction:@selector(outlineViewDoubleClicked:)];
+
+    // Drag destination – accept file drops onto sidebar items
+    [_outlineView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
 
     NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"main"];
     col.resizingMask = NSTableColumnAutoresizingMask;
@@ -95,6 +119,7 @@
 }
 
 - (void)dealloc {
+    [_smbBrowser stop];
     [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self];
 }
 
@@ -124,6 +149,11 @@
     SidebarItem *volHeader = [[SidebarItem alloc] initHeader:@"DISPOSITIVOS"];
     [self populateVolumes:volHeader];
     [_sections addObject:volHeader];
+
+    // ── Network ──────────────────────────────────────────────────────────
+    _networkHeader = [[SidebarItem alloc] initHeader:@"RED"];
+    [_sections addObject:_networkHeader];
+    [self startNetworkDiscovery];
 }
 
 - (void)populateVolumes:(SidebarItem *)header {
@@ -180,11 +210,199 @@
 
 - (void)volumesChanged:(NSNotification *)note {
     dispatch_async(dispatch_get_main_queue(), ^{
-        SidebarItem *volHeader = self.sections.lastObject;
+        // DISPOSITIVOS is the second section (index 1)
+        if (self.sections.count < 2) return;
+        SidebarItem *volHeader = self.sections[1];
         [self populateVolumes:volHeader];
         [self.outlineView reloadData];
         [self.outlineView expandItem:nil expandChildren:YES];
     });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma mark – Network discovery
+// ─────────────────────────────────────────────────────────────────────────────
+
+- (void)startNetworkDiscovery {
+    _discoveredServices = [NSMutableArray array];
+
+    // 1) Bonjour – finds servers that advertise via mDNS/Avahi
+    _smbBrowser = [[NSNetServiceBrowser alloc] init];
+    _smbBrowser.delegate = self;
+    [_smbBrowser searchForServicesOfType:@"_smb._tcp." inDomain:@""];
+
+    // 2) Port scan – finds SMB servers that don't advertise via Bonjour
+    [self scanSubnetForSMB];
+}
+
+// ─── Bonjour delegate ────────────────────────────────────────────────────────
+
+- (void)netServiceBrowser:(NSNetServiceBrowser *)browser
+           didFindService:(NSNetService *)service
+               moreComing:(BOOL)moreComing {
+    service.delegate = self;
+    [service resolveWithTimeout:5.0];
+    [_discoveredServices addObject:service];
+}
+
+- (void)netServiceBrowser:(NSNetServiceBrowser *)browser
+         didRemoveService:(NSNetService *)service
+               moreComing:(BOOL)moreComing {
+    [_discoveredServices removeObject:service];
+    NSMutableArray *toRemove = [NSMutableArray array];
+    for (SidebarItem *item in _networkHeader.children) {
+        if ([item.name isEqualToString:service.name]) [toRemove addObject:item];
+    }
+    [_networkHeader.children removeObjectsInArray:toRemove];
+    if (!moreComing) {
+        [_outlineView reloadData];
+        [_outlineView expandItem:nil expandChildren:YES];
+    }
+}
+
+- (void)netServiceDidResolveAddress:(NSNetService *)service {
+    NSString *hostname = service.hostName;
+    if ([hostname hasSuffix:@"."]) hostname = [hostname substringToIndex:hostname.length - 1];
+    [self addNetworkHostWithName:service.name hostname:hostname];
+}
+
+- (void)netService:(NSNetService *)sender
+     didNotResolve:(NSDictionary<NSString *,NSNumber *> *)errorDict {
+    [self addNetworkHostWithName:sender.name hostname:sender.name];
+}
+
+// ─── Subnet scan for port 445 (SMB) ─────────────────────────────────────────
+
+- (void)scanSubnetForSMB {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        // Get local IPv4 addresses and their netmasks
+        struct ifaddrs *ifaddrs = NULL;
+        if (getifaddrs(&ifaddrs) != 0) return;
+
+        for (struct ifaddrs *ifa = ifaddrs; ifa; ifa = ifa->ifa_next) {
+            if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+            // Skip loopback
+            if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+            // Must be up and running
+            if (!(ifa->ifa_flags & IFF_UP) || !(ifa->ifa_flags & IFF_RUNNING)) continue;
+
+            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+            struct sockaddr_in *mask = (struct sockaddr_in *)ifa->ifa_netmask;
+            uint32_t ip   = ntohl(addr->sin_addr.s_addr);
+            uint32_t net  = ntohl(mask->sin_addr.s_addr);
+            uint32_t base = ip & net;
+            uint32_t bcast = base | ~net;
+            // Limit scan to /24 or smaller to avoid flooding large subnets
+            uint32_t range = bcast - base;
+            if (range > 254) range = 254;
+
+            dispatch_group_t group = dispatch_group_create();
+            dispatch_queue_t queue = dispatch_queue_create("smb.scan", DISPATCH_QUEUE_CONCURRENT);
+
+            for (uint32_t i = 1; i <= range; i++) {
+                uint32_t target = base + i;
+                if (target == ip) continue; // skip self
+
+                dispatch_group_enter(group);
+                dispatch_async(queue, ^{
+                    [self probeSMBAtIP:target];
+                    dispatch_group_leave(group);
+                });
+            }
+
+            dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, 5LL * NSEC_PER_SEC));
+        }
+
+        freeifaddrs(ifaddrs);
+    });
+}
+
+- (void)probeSMBAtIP:(uint32_t)ip {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return;
+
+    // Set non-blocking
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(445);
+    addr.sin_addr.s_addr = htonl(ip);
+
+    connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+
+    // Wait up to 300ms for connection
+    fd_set writefds;
+    FD_ZERO(&writefds);
+    FD_SET(fd, &writefds);
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 300000 };
+
+    int result = select(fd + 1, NULL, &writefds, NULL, &tv);
+    if (result > 0) {
+        int err = 0;
+        socklen_t len = sizeof(err);
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+        if (err == 0) {
+            // Port 445 is open – resolve hostname
+            struct sockaddr_in sa;
+            memset(&sa, 0, sizeof(sa));
+            sa.sin_family = AF_INET;
+            sa.sin_addr.s_addr = htonl(ip);
+            char hostbuf[NI_MAXHOST];
+            char ipstr[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &sa.sin_addr, ipstr, sizeof(ipstr));
+
+            NSString *displayName;
+            NSString *hostname;
+            if (getnameinfo((struct sockaddr *)&sa, sizeof(sa),
+                            hostbuf, sizeof(hostbuf), NULL, 0,
+                            NI_NAMEREQD) == 0) {
+                // Got a DNS name – use short name for display
+                NSString *fullName = @(hostbuf);
+                // Strip domain suffix for display (e.g. "server.local" → "server")
+                NSArray *parts = [fullName componentsSeparatedByString:@"."];
+                displayName = parts.firstObject;
+                hostname = fullName;
+            } else {
+                // No reverse DNS – use IP address
+                displayName = @(ipstr);
+                hostname = @(ipstr);
+            }
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self addNetworkHostWithName:displayName hostname:hostname];
+            });
+        }
+    }
+    close(fd);
+}
+
+// ─── Common helper ───────────────────────────────────────────────────────────
+
+- (void)addNetworkHostWithName:(NSString *)name hostname:(NSString *)hostname {
+    // Avoid duplicates
+    for (SidebarItem *existing in _networkHeader.children) {
+        if ([existing.networkHostname isEqualToString:hostname]) return;
+    }
+    NSImage *icon = [NSImage imageWithSystemSymbolName:@"network" accessibilityDescription:nil] ?:
+                    [NSImage imageNamed:NSImageNameNetwork];
+    SidebarItem *item = [[SidebarItem alloc] initNetworkHost:name
+                                                    hostname:hostname
+                                                        icon:icon];
+    [_networkHeader.children addObject:item];
+    [_outlineView reloadData];
+    [_outlineView expandItem:nil expandChildren:YES];
+}
+
+- (void)connectToNetworkHost:(SidebarItem *)item {
+    // Open smb://hostname – macOS handles authentication and mounting.
+    // Once mounted the volume appears in /Volumes and our NSWorkspace
+    // mount notification refreshes DISPOSITIVOS automatically.
+    NSString *urlStr = [NSString stringWithFormat:@"smb://%@", item.networkHostname];
+    NSURL *url = [NSURL URLWithString:urlStr];
+    if (url) [[NSWorkspace sharedWorkspace] openURL:url];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -307,12 +525,53 @@
     NSInteger row = _outlineView.selectedRow;
     if (row < 0) return;
     SidebarItem *item = [_outlineView itemAtRow:row];
-    if (item.isHeader || !item.path) return;
+    if (item.isHeader) return;
+
+    if (item.networkHostname) {
+        [self connectToNetworkHost:item];
+        return;
+    }
+    if (!item.path) return;
     [self.delegate sidebar:self didSelectPath:item.path];
 }
 
 - (IBAction)outlineViewDoubleClicked:(id)sender {
     // Double-click on sidebar item is same as single select (already handled)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma mark – Drag destination
+// ─────────────────────────────────────────────────────────────────────────────
+
+- (NSDragOperation)outlineView:(NSOutlineView *)ov
+                  validateDrop:(id<NSDraggingInfo>)info
+                  proposedItem:(id)item
+            proposedChildIndex:(NSInteger)index {
+    if (!item) return NSDragOperationNone;
+    SidebarItem *si = item;
+    if (si.isHeader || !si.path) return NSDragOperationNone;
+    NSDragOperation mask = info.draggingSourceOperationMask;
+    if (mask & NSDragOperationMove) return NSDragOperationMove;
+    return NSDragOperationCopy;
+}
+
+- (BOOL)outlineView:(NSOutlineView *)ov
+         acceptDrop:(id<NSDraggingInfo>)info
+               item:(id)item
+         childIndex:(NSInteger)index {
+    SidebarItem *si = item;
+    if (!si || si.isHeader || !si.path) return NO;
+    NSArray<NSURL *> *urls = [info.draggingPasteboard
+        readObjectsForClasses:@[[NSURL class]]
+        options:@{ NSPasteboardURLReadingFileURLsOnlyKey: @YES }];
+    if (!urls.count) return NO;
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    for (NSURL *u in urls) [paths addObject:u.path];
+    BOOL isMove = (info.draggingSourceOperationMask & NSDragOperationMove) != 0;
+    if ([self.delegate respondsToSelector:@selector(sidebar:dropFilePaths:toDir:isMove:)]) {
+        [self.delegate sidebar:self dropFilePaths:paths toDir:si.path isMove:isMove];
+    }
+    return YES;
 }
 
 @end

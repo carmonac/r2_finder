@@ -48,6 +48,7 @@ pub fn build(b: *std.Build) void {
     mod.linkFramework("Foundation", .{});
     mod.linkFramework("UniformTypeIdentifiers", .{});
     mod.linkFramework("Quartz", .{});
+    mod.linkFramework("CoreServices", .{});
 
     // ── libc (required for ObjC runtime) ────────────────────────────────────
     mod.link_libc = true;

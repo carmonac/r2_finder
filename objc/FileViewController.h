@@ -23,5 +23,8 @@ typedef NS_ENUM(NSInteger, FileViewMode) {
 - (instancetype)initWithPath:(NSString *)path;
 - (void)loadPath:(NSString *)path;
 - (void)createNewFolderInPath:(NSString *)path;
+- (void)performTransferFromPaths:(NSArray<NSString *> *)paths
+                           toDir:(NSString *)dstDir
+                          isMove:(BOOL)isMove;
 
 @end

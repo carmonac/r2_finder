@@ -5,6 +5,11 @@
 
 @protocol SidebarViewControllerDelegate <NSObject>
 - (void)sidebar:(SidebarViewController *)sidebar didSelectPath:(NSString *)path;
+@optional
+- (void)sidebar:(SidebarViewController *)sidebar
+   dropFilePaths:(NSArray<NSString *> *)paths
+           toDir:(NSString *)dstDir
+          isMove:(BOOL)isMove;
 @end
 
 @interface SidebarViewController : NSViewController <NSOutlineViewDataSource, NSOutlineViewDelegate>

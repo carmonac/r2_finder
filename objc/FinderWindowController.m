@@ -287,6 +287,13 @@
     [self pushPath:path updateContent:YES];
 }
 
+- (void)sidebar:(SidebarViewController *)sidebar
+   dropFilePaths:(NSArray<NSString *> *)paths
+           toDir:(NSString *)dstDir
+          isMove:(BOOL)isMove {
+    [_fileVC performTransferFromPaths:paths toDir:dstDir isMove:isMove];
+}
+
 // ───────────────────────────────────────────────
 #pragma mark – FileViewControllerDelegate
 // ───────────────────────────────────────────────

@@ -4,6 +4,7 @@
 #import "bridge.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <Quartz/Quartz.h>
+#import <CoreServices/CoreServices.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FileEntry – lightweight model object for directory entries
@@ -172,9 +173,53 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 @property (nonatomic, strong) NSArray<NSString *>      *clipboardPaths;
 @property (nonatomic)         ClipboardOperation         clipboardOp;
 @property (nonatomic)         NSInteger                  renameRow;
+@property (nonatomic)         FSEventStreamRef           fsEventStream;
 @end
 
 @implementation FileViewController
+
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma mark – FSEvents directory monitoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void fsEventsCallback(ConstFSEventStreamRef streamRef,
+                             void *clientCallBackInfo,
+                             size_t numEvents,
+                             void *eventPaths,
+                             const FSEventStreamEventFlags eventFlags[],
+                             const FSEventStreamEventId eventIds[]) {
+    FileViewController *vc = (__bridge FileViewController *)clientCallBackInfo;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [vc loadPath:vc.currentPath];
+    });
+}
+
+- (void)startWatchingPath:(NSString *)path {
+    [self stopWatching];
+    FSEventStreamContext ctx = { 0, (__bridge void *)self, NULL, NULL, NULL };
+    _fsEventStream = FSEventStreamCreate(
+        NULL, &fsEventsCallback, &ctx,
+        (__bridge CFArrayRef)@[path],
+        kFSEventStreamEventIdSinceNow,
+        0.5,  // 500ms latency – batches rapid changes
+        kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents
+    );
+    FSEventStreamScheduleWithRunLoop(_fsEventStream, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+    FSEventStreamStart(_fsEventStream);
+}
+
+- (void)stopWatching {
+    if (_fsEventStream) {
+        FSEventStreamStop(_fsEventStream);
+        FSEventStreamInvalidate(_fsEventStream);
+        FSEventStreamRelease(_fsEventStream);
+        _fsEventStream = NULL;
+    }
+}
+
+- (void)dealloc {
+    [self stopWatching];
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma mark – Init / View
@@ -218,6 +263,10 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
     _outlineView.indentationPerLevel     = 18;
     _outlineView.autoresizesOutlineColumn = YES;
     [_outlineView setDoubleAction:@selector(tableViewDoubleClicked:)];
+
+    // Drag source
+    [_outlineView setDraggingSourceOperationMask:NSDragOperationCopy | NSDragOperationMove
+                                        forLocal:NO];
 
     // Drag destination
     [_outlineView registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
@@ -370,7 +419,9 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 - (void)loadPath:(NSString *)path {
+    BOOL pathChanged = ![_currentPath isEqualToString:path];
     _currentPath = [path copy];
+    if (pathChanged) [self startWatchingPath:path];
     [_entries removeAllObjects];
 
     ZigDirListing *listing = zig_list_directory(path.UTF8String);
@@ -1604,7 +1655,31 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
     return nil;
 }
 
-// QLPreviewPanelDelegate – keep the panel in sync when the selection changes.
+// QLPreviewPanelDelegate – forward arrow keys to the file view so the user
+// can navigate the list while the preview panel is visible.
+- (BOOL)previewPanel:(QLPreviewPanel *)panel handleEvent:(NSEvent *)event {
+    if (event.type == NSEventTypeKeyDown) {
+        unichar c = [event.characters characterAtIndex:0];
+        if (c == NSUpArrowFunctionKey || c == NSDownArrowFunctionKey ||
+            c == NSLeftArrowFunctionKey || c == NSRightArrowFunctionKey) {
+            NSView *target = nil;
+            switch (_viewMode) {
+                case FileViewModeIcon:    target = _collectionView; break;
+                case FileViewModeColumns: target = _browser;        break;
+                default:                  target = _outlineView;    break;
+            }
+            [target keyDown:event];
+            return YES;
+        }
+        if (c == ' ') {
+            [panel orderOut:nil];
+            return YES;
+        }
+    }
+    return NO;
+}
+
+// Keep the panel in sync when the selection changes.
 - (void)outlineViewSelectionDidChange:(NSNotification *)notification {
     if ([QLPreviewPanel sharedPreviewPanelExists] && [QLPreviewPanel sharedPreviewPanel].isVisible)
         [[QLPreviewPanel sharedPreviewPanel] reloadData];

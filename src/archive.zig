@@ -11,6 +11,10 @@ const getIo = root.getIo;
 const ZigProgressCallback = root.ZigProgressCallback;
 const ZigCompletionCallback = root.ZigCompletionCallback;
 
+/// Global lock to serialize archive operations (compress/uncompress)
+/// so that only one 7zz process runs at a time, avoiding I/O contention.
+var archive_lock: std.atomic.Mutex = .unlocked;
+
 const ArchiveJob = struct {
     sevenzz_path: [:0]u8,
     src_paths: ?[][:0]u8, // null for uncompress
@@ -200,6 +204,11 @@ fn freeArchiveJob(job: *ArchiveJob) void {
 }
 
 fn archiveThread(job: *ArchiveJob) void {
+    while (!archive_lock.tryLock()) {
+        var ts = std.c.timespec{ .sec = 0, .nsec = 100_000_000 };
+        _ = std.c.nanosleep(&ts, &ts);
+    }
+    defer archive_lock.unlock();
     defer freeArchiveJob(job);
     runArchive(job) catch |err| {
         var buf: [256]u8 = undefined;
