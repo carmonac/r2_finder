@@ -1590,15 +1590,10 @@ static void doneCb(void *ctx, bool success, const char *errMsg) {
     return NSDragOperationCopy | NSDragOperationMove;
 }
 
-- (BOOL)outlineView:(NSOutlineView *)ov
-       writeItems:(NSArray *)items
-     toPasteboard:(NSPasteboard *)pb {
-    NSMutableArray<NSURL *> *urls = [NSMutableArray array];
-    for (FileEntry *entry in items)
-        [urls addObject:[NSURL fileURLWithPath:entry.path]];
-    [pb clearContents];
-    [pb writeObjects:urls];
-    return YES;
+- (id<NSPasteboardWriting>)outlineView:(NSOutlineView *)ov
+                pasteboardWriterForItem:(id)item {
+    FileEntry *entry = (FileEntry *)item;
+    return [NSURL fileURLWithPath:entry.path];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

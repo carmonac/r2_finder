@@ -411,21 +411,38 @@
 
 - (void)highlightPath:(NSString *)path {
     _isHighlighting = YES;
+
+    // Find the sidebar item whose path is the longest prefix of the navigated
+    // path.  The old code returned on the first match, which caused "/" (Macintosh
+    // HD) to win over more specific mount-points like "/Volumes/SambaShare".
+    SidebarItem *bestMatch = nil;
+    NSUInteger  bestLen    = 0;
+
     for (SidebarItem *section in _sections) {
         for (SidebarItem *item in section.children) {
-            if ([path hasPrefix:item.path]) {
-                NSInteger row = [_outlineView rowForItem:item];
-                if (row >= 0) {
-                    [_outlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
-                              byExtendingSelection:NO];
-                    _isHighlighting = NO;
-                    return;
+            if (!item.path) continue;
+            NSUInteger len = item.path.length;
+            if (len > bestLen && [path hasPrefix:item.path]) {
+                // Ensure the prefix ends at a path boundary: either the prefix
+                // is "/" itself, the prefix equals the full path, or the character
+                // right after the prefix is '/'.
+                if (len == 1 || len == path.length || [path characterAtIndex:len] == '/') {
+                    bestMatch = item;
+                    bestLen   = len;
                 }
             }
         }
     }
-    // No match – deselect
-    [_outlineView deselectAll:nil];
+
+    if (bestMatch) {
+        NSInteger row = [_outlineView rowForItem:bestMatch];
+        if (row >= 0) {
+            [_outlineView selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
+                      byExtendingSelection:NO];
+        }
+    } else {
+        [_outlineView deselectAll:nil];
+    }
     _isHighlighting = NO;
 }
 
