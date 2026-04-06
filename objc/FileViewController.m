@@ -174,6 +174,10 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 @property (nonatomic)         ClipboardOperation         clipboardOp;
 @property (nonatomic)         NSInteger                  renameRow;
 @property (nonatomic)         FSEventStreamRef           fsEventStream;
+@property (nonatomic, strong) NSProgressIndicator       *loadingSpinner;
+@property (nonatomic, strong) dispatch_queue_t            loadQueue;
+@property (nonatomic)         NSUInteger                  loadGeneration;
+@property (nonatomic)         BOOL                        isLoading;
 @end
 
 @implementation FileViewController
@@ -235,6 +239,8 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
     _renameRow     = -1;
     _viewMode      = FileViewModeList;
     _currentPath   = [path copy];
+    _loadQueue     = dispatch_queue_create("com.r2finder.dirload", DISPATCH_QUEUE_SERIAL);
+    _loadGeneration = 0;
     return self;
 }
 
@@ -250,6 +256,14 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
     statusLabel.alignment     = NSTextAlignmentCenter;
     statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:statusLabel];
+
+    // Loading spinner (centered, hidden when stopped)
+    _loadingSpinner = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(0, 0, 32, 32)];
+    _loadingSpinner.style = NSProgressIndicatorStyleSpinning;
+    _loadingSpinner.controlSize = NSControlSizeRegular;
+    _loadingSpinner.translatesAutoresizingMaskIntoConstraints = NO;
+    _loadingSpinner.displayedWhenStopped = NO;
+    [self.view addSubview:_loadingSpinner];
 
     // Outline view (replaces flat table view – supports expandable folders)
     _outlineView = [[ContextMenuOutlineView alloc] initWithFrame:NSZeroRect];
@@ -365,6 +379,9 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
         [statusLabel.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [statusLabel.bottomAnchor   constraintEqualToAnchor:self.view.bottomAnchor constant:-4],
         [statusLabel.heightAnchor   constraintEqualToConstant:18],
+
+        [_loadingSpinner.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [_loadingSpinner.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
     ]];
 }
 
@@ -422,29 +439,57 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
     BOOL pathChanged = ![_currentPath isEqualToString:path];
     _currentPath = [path copy];
     if (pathChanged) [self startWatchingPath:path];
-    [_entries removeAllObjects];
 
-    ZigDirListing *listing = zig_list_directory(path.UTF8String);
-    if (listing) {
-        NSWorkspace *ws = [NSWorkspace sharedWorkspace];
-        for (uint64_t i = 0; i < listing->count; i++) {
-            ZigDirEntry e = listing->entries[i];
-            if (!s_showHidden && e.name[0] == '.') continue;
-            FileEntry *fe = [[FileEntry alloc] init];
-            fe.name      = @(e.name);
-            fe.path      = @(e.path);
-            fe.isDir     = (BOOL)e.is_dir;
-            fe.isSymlink = (BOOL)e.is_symlink;
-            fe.size      = e.size;
-            fe.mtime     = e.mtime;
-            fe.icon      = [ws iconForFile:fe.path];
-            fe.icon.size = NSMakeSize(16, 16);
-            [_entries addObject:fe];
-        }
-        zig_free_dir_listing(listing);
-    }
+    // Immediately clear content and show spinner
+    [_entries removeAllObjects];
     [self reloadAllViews];
+    _isLoading = YES;
+    [_loadingSpinner startAnimation:nil];
     [self updateStatusBar];
+
+    // Capture generation to detect superseded loads
+    NSUInteger thisGeneration = ++_loadGeneration;
+    NSString *pathCopy = [path copy];
+    BOOL showHidden = s_showHidden;
+
+    dispatch_async(_loadQueue, ^{
+        ZigDirListing *listing = zig_list_directory(pathCopy.UTF8String);
+
+        NSMutableArray<FileEntry *> *newEntries = [NSMutableArray array];
+        if (listing) {
+            for (uint64_t i = 0; i < listing->count; i++) {
+                ZigDirEntry e = listing->entries[i];
+                if (!showHidden && e.name[0] == '.') continue;
+                FileEntry *fe = [[FileEntry alloc] init];
+                fe.name      = @(e.name);
+                fe.path      = @(e.path);
+                fe.isDir     = (BOOL)e.is_dir;
+                fe.isSymlink = (BOOL)e.is_symlink;
+                fe.size      = e.size;
+                fe.mtime     = e.mtime;
+                [newEntries addObject:fe];
+            }
+            zig_free_dir_listing(listing);
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self->_loadGeneration != thisGeneration) return;
+
+            self->_isLoading = NO;
+            [self->_loadingSpinner stopAnimation:nil];
+
+            NSWorkspace *ws = [NSWorkspace sharedWorkspace];
+            for (FileEntry *fe in newEntries) {
+                fe.icon = [ws iconForFile:fe.path];
+                fe.icon.size = NSMakeSize(16, 16);
+            }
+
+            [self->_entries removeAllObjects];
+            [self->_entries addObjectsFromArray:newEntries];
+            [self reloadAllViews];
+            [self updateStatusBar];
+        });
+    });
 }
 
 - (void)reloadAllViews {
@@ -456,6 +501,10 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
 
 - (void)updateStatusBar {
     NSTextField *label = (NSTextField *)[self.view viewWithTag:999];
+    if (_isLoading) {
+        label.stringValue = @"Cargando…";
+        return;
+    }
     NSUInteger folders = 0, files = 0;
     for (FileEntry *e in _entries) { if (e.isDir) folders++; else files++; }
     label.stringValue = [NSString stringWithFormat:@"%lu carpeta%@, %lu archivo%@",
