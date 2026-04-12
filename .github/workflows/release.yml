@@ -19,10 +19,10 @@ jobs:
           # Use a PAT or the default token – push to main requires write access.
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Zig 0.16.0-dev
-        run: |
-          curl -L https://ziglang.org/builds/zig-aarch64-macos-0.16.0-dev.2682+02142a54d.tar.xz | tar -xJ
-          echo "$PWD/zig-aarch64-macos-0.16.0-dev.2682+02142a54d" >> $GITHUB_PATH
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0-dev.2682+02142a54d
 
       # ── Build ──────────────────────────────────────────────────────────────
       - name: Build app bundle (ReleaseFast)
