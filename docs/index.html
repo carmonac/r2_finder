@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>R2 Finder — A Finder replacement for macOS that actually works with SMB / Samba shares</title>
+<meta name="description" content="R2 Finder is a free, open-source Finder alternative for macOS. It uses rsync under the hood so copying and moving files to Samba (SMB) shares and NAS devices just works — no more -36 errors, no more stalled transfers." />
+<meta name="keywords" content="macOS Finder replacement, SMB error -36, Samba NAS macOS, Finder alternative, rsync macOS, copy to NAS macOS, R2 Finder, open source Finder" />
+<meta name="author" content="Carlos Merchán" />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://carmonac.github.io/r2_finder/" />
+
+<!-- Open Graph / Social -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="R2 Finder — Finder replacement for macOS with reliable SMB / Samba copy" />
+<meta property="og:description" content="Free, open-source Finder alternative for macOS. Uses rsync so Samba / NAS transfers never fail with error -36." />
+<meta property="og:image" content="https://carmonac.github.io/r2_finder/screenshot.png" />
+<meta property="og:url" content="https://carmonac.github.io/r2_finder/" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8d96a0;
+    --accent: #4493f8;
+    --accent-hover: #58a6ff;
+    --success: #3fb950;
+    --danger: #f85149;
+    --code-bg: #0b0f14;
+    --max-width: 960px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 24px 20px;
+    background: var(--panel);
+  }
+
+  header .inner {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  header img.logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+  }
+
+  header .title h1 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.2;
+  }
+
+  header .title p {
+    margin: 2px 0 0 0;
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  header nav {
+    margin-left: auto;
+    display: flex;
+    gap: 16px;
+  }
+
+  @media (max-width: 640px) {
+    header nav { display: none; }
+  }
+
+  main {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+
+  section { margin-bottom: 56px; }
+
+  h2 {
+    font-size: 26px;
+    margin: 0 0 16px 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+
+  h3 { font-size: 19px; margin: 24px 0 8px 0; }
+
+  p { margin: 12px 0; color: var(--text); }
+
+  .hero {
+    text-align: center;
+    padding: 16px 0 32px;
+  }
+
+  .hero h2 {
+    font-size: 38px;
+    line-height: 1.15;
+    border: none;
+    margin-bottom: 12px;
+  }
+
+  .hero p.tagline {
+    font-size: 18px;
+    color: var(--muted);
+    max-width: 640px;
+    margin: 0 auto 28px;
+  }
+
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 15px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .btn:hover { background: #262c36; text-decoration: none; border-color: #484f58; }
+
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+  }
+
+  .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+  .screenshot {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    margin: 32px auto;
+  }
+
+  blockquote {
+    border-left: 4px solid var(--danger);
+    background: var(--panel);
+    margin: 16px 0;
+    padding: 12px 18px;
+    color: var(--muted);
+    font-style: italic;
+    border-radius: 0 6px 6px 0;
+  }
+
+  code {
+    font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    border: 1px solid var(--border);
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  pre code { background: none; border: none; padding: 0; }
+
+  ul.features {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  ul.features li {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  ul.features li strong { color: var(--accent-hover); }
+
+  .warning {
+    background: #2d1a0a;
+    border: 1px solid #7d4a10;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 20px 0;
+    color: #f0d9ba;
+  }
+
+  .warning strong { color: #ffb870; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+
+  table th, table td {
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    text-align: left;
+  }
+
+  table th { background: var(--panel); }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 24px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--accent-hover); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <img class="logo" src="r2_finder.png" alt="R2 Finder logo" />
+    <div class="title">
+      <h1>R2 Finder</h1>
+      <p>A Finder replacement for macOS that just works with SMB / NAS</p>
+    </div>
+    <nav>
+      <a href="#why">Why</a>
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/carmonac/r2_finder">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <section class="hero">
+    <h2>Stop fighting Finder when copying to your NAS.</h2>
+    <p class="tagline">
+      R2 Finder is a free, open-source file manager for macOS that replaces Finder's broken SMB copy
+      stack with <code>rsync</code>. No more cryptic <code>error code -36</code>, no more
+      stalled transfers, no more <code>.DS_Store</code> noise on your server.
+    </p>
+    <div class="cta-row">
+      <a class="btn primary" href="https://github.com/carmonac/r2_finder/releases/latest">Download latest DMG</a>
+      <a class="btn" href="https://github.com/carmonac/r2_finder">View on GitHub</a>
+    </div>
+    <img class="screenshot" src="screenshot.png" alt="R2 Finder app running on macOS, showing the sidebar with favourites, devices and network shares, and a grid view of the root filesystem." />
+  </section>
+
+  <section id="why">
+    <h2>Why does this app exist?</h2>
+    <p>
+      macOS Finder has a long-standing problem when copying files to volumes exposed over
+      <strong>Samba (SMB)</strong> — particularly on NAS devices like Synology, QNAP, TrueNAS,
+      Unraid, or any Linux/FreeBSD Samba server. Depending on the SMB dialect, extended-attribute
+      support, or server-side settings, Finder will frequently throw errors like:
+    </p>
+    <blockquote>
+      "The operation can't be completed because an unexpected error occurred (error code -36)."
+    </blockquote>
+    <blockquote>
+      "The Finder can't complete the operation because some data in <em>&lt;file&gt;</em> can't be read or written. (Error code -36)"
+    </blockquote>
+    <p>
+      …or it will silently stall mid-transfer, leaving partial files on the remote share. The root
+      cause is that Finder tries to copy macOS-specific metadata (resource forks, extended
+      attributes, <code>.DS_Store</code> entries, <code>AppleDouble</code> files prefixed with
+      <code>._</code>) alongside the actual file data. Many Samba configurations reject or
+      mishandle those writes.
+    </p>
+
+    <h3>How R2 Finder solves it</h3>
+    <p>
+      R2 Finder uses <strong><code>rsync</code></strong> for every copy and move operation. It
+      ships with a bundled <code>rsync</code> binary and invokes it with archive mode:
+    </p>
+    <pre><code>rsync -a -P [--ignore-existing] [--remove-source-files] &lt;sources&gt; &lt;destination&gt;/</code></pre>
+    <ul class="features">
+      <li><strong>-a (archive mode)</strong> — preserves permissions, timestamps and symlinks without pushing macOS-specific resource forks that Samba rejects.</li>
+      <li><strong>-P</strong> — <code>--partial</code> + per-file progress. Interrupted transfers resume from where they stopped.</li>
+      <li><strong>--ignore-existing</strong> — safe copy without overwriting when no collision override is chosen.</li>
+      <li><strong>--remove-source-files</strong> — clean atomic move: source is only deleted once the destination is fully written.</li>
+    </ul>
+    <p>
+      Because <code>rsync</code> speaks the remote filesystem's language and skips the
+      extended-attribute overhead, transfers to Samba shares complete reliably where Finder fails.
+    </p>
+  </section>
+
+  <section id="features">
+    <h2>Features</h2>
+    <ul class="features">
+      <li><strong>Reliable SMB / NAS copy</strong> — every transfer goes through <code>rsync</code>, with a progress window showing speed, ETA and per-file status.</li>
+      <li><strong>Resume interrupted transfers</strong> — partial files are picked up where they left off, no need to restart a multi-GB copy from zero.</li>
+      <li><strong>Cut / Copy / Paste</strong> — standard <code>⌘C</code> / <code>⌘X</code> / <code>⌘V</code>, compatible with files copied from macOS Finder itself.</li>
+      <li><strong>Force-move on paste</strong> — hold <code>Option</code> while pasting to move instead of copy.</li>
+      <li><strong>Drag and drop</strong> — between R2 Finder windows and from/to other applications.</li>
+      <li><strong>Quick Look preview</strong> — press <code>Space</code> to preview any file, just like Finder.</li>
+      <li><strong>Multiple view modes</strong> — icon grid, list view, and column view (Miller columns).</li>
+      <li><strong>Smart sidebar</strong> — favourites (Home, Desktop, Documents, Downloads…), mounted volumes that auto-refresh on mount/unmount, and discovered SMB shares on the local network.</li>
+      <li><strong>Network discovery</strong> — finds SMB servers on your LAN and shows them under the Network section.</li>
+      <li><strong>Inline rename and new folder</strong> — keyboard-driven, familiar shortcuts (<code>⌘⇧N</code>).</li>
+      <li><strong>Show / hide hidden files</strong> — toggle dotfiles with a single shortcut.</li>
+      <li><strong>Trash or permanent delete</strong> — move to Trash by default, or hold <code>Option</code> to delete permanently.</li>
+      <li><strong>Archive support</strong> — create and split archives with a bundled <code>7zz</code> binary, with progress monitoring.</li>
+      <li><strong>Back / forward navigation</strong> — per-window history, like a browser.</li>
+      <li><strong>Multiple independent windows</strong> — open as many as you need, each with its own history.</li>
+      <li><strong>Native Cocoa UI</strong> — built in Objective-C and Zig, no Electron, no web tech, &lt;5 MB app bundle.</li>
+      <li><strong>Open source, no telemetry</strong> — the code is on GitHub. It never phones home.</li>
+    </ul>
+  </section>
+
+  <section id="who">
+    <h2>Who is this for?</h2>
+    <ul class="features">
+      <li><strong>NAS owners</strong> — Synology, QNAP, TrueNAS, Unraid, Asustor, or any self-hosted Samba server.</li>
+      <li><strong>Homelab users</strong> — anyone who has ever shouted at Finder while moving media files to a home server.</li>
+      <li><strong>Video editors and photographers</strong> — copying large assets to network storage is a daily pain. R2 Finder makes it boringly reliable.</li>
+      <li><strong>Small studios and offices</strong> — sharing files across a LAN via Samba without buying a macOS server.</li>
+      <li><strong>Anyone fed up with error -36</strong> — if you've Googled that error number, this app is for you.</li>
+    </ul>
+  </section>
+
+  <section id="download">
+    <h2>Download and install</h2>
+    <p>
+      R2 Finder requires <strong>macOS 13 (Ventura)</strong> or later and runs natively on Apple
+      Silicon.
+    </p>
+    <p>
+      <a class="btn primary" href="https://github.com/carmonac/r2_finder/releases/latest">Download the latest DMG from GitHub Releases</a>
+    </p>
+    <p>
+      Open the <code>.dmg</code>, then drag <strong>R2 Finder.app</strong> to your
+      <code>/Applications</code> folder.
+    </p>
+
+    <div class="warning">
+      <strong>First launch — important:</strong> because the app is not notarized, macOS will
+      quarantine it the first time you open it. Run this command in Terminal once, before
+      launching it:
+      <pre><code>xattr -d com.apple.quarantine /Applications/R2\ Finder.app</code></pre>
+      After that, open it like any other app.
+    </div>
+  </section>
+
+  <section id="faq">
+    <h2>Frequently asked questions</h2>
+
+    <h3>Is it a fork of Finder?</h3>
+    <p>
+      No. It is a fresh macOS application written from scratch in Zig (for filesystem operations)
+      and Objective-C / Cocoa (for the UI). It does not use or modify any part of Apple's Finder.
+    </p>
+
+    <h3>Does it replace Finder?</h3>
+    <p>
+      No — it runs alongside Finder. You can keep using Finder for everything else and only open
+      R2 Finder when you need to copy or move files to a Samba share.
+    </p>
+
+    <h3>Why not just use the command line?</h3>
+    <p>
+      You absolutely can, and many people do. R2 Finder exists for everyone who prefers a graphical
+      file manager, needs drag-and-drop, or shares a Mac with less technical family members /
+      coworkers.
+    </p>
+
+    <h3>Is it free? Is it open source?</h3>
+    <p>
+      Yes to both. The full source code is available on
+      <a href="https://github.com/carmonac/r2_finder">GitHub</a>. There is no paid tier, no
+      telemetry, and no account required.
+    </p>
+
+    <h3>Does it work on Intel Macs?</h3>
+    <p>
+      The current build targets Apple Silicon (arm64). Intel support is possible but not a
+      priority — PRs welcome.
+    </p>
+
+    <h3>Can it copy between two remote SMB shares?</h3>
+    <p>
+      Yes. Because it uses <code>rsync</code>, you can copy directly from one mounted share to
+      another without having to stage through local disk.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  <p>
+    R2 Finder · Open source on <a href="https://github.com/carmonac/r2_finder">GitHub</a> ·
+    Report issues <a href="https://github.com/carmonac/r2_finder/issues">here</a>
+  </p>
+</footer>
+
+</body>
+</html>
