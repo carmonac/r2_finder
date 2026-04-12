@@ -26,7 +26,7 @@ jobs:
 
       # ── Build ──────────────────────────────────────────────────────────────
       - name: Build app bundle (ReleaseFast)
-        run: zig build bundle -Doptimize=ReleaseFast
+        run: zig build bundle -Doptimize=ReleaseFast -Dversion=${{ github.ref_name }}
 
       # ── Package as DMG ─────────────────────────────────────────────────────
       - name: Create DMG

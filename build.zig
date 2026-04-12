@@ -8,6 +8,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const version = b.option([]const u8, "version", "App version string for Info.plist") orelse "0.0.0-dev";
+
     // ── Executable ───────────────────────────────────────────────────────────
     const exe = b.addExecutable(.{
         .name = "rs_2finder",
@@ -65,7 +67,7 @@ pub fn build(b: *std.Build) void {
 
     // ── zig build bundle  (creates R2 Finder.app in zig-out/) ───────────────
     const bundle_step = b.step("bundle", "Crear R2 Finder.app en zig-out/");
-    const bundle = makeBundleStep(b, exe);
+    const bundle = makeBundleStep(b, exe, version);
     bundle_step.dependOn(bundle);
 
     // ── zig build test / test-fs  (Zig unit tests, no ObjC deps needed) ─────
@@ -85,9 +87,12 @@ pub fn build(b: *std.Build) void {
 // ─────────────────────────────────────────────────────────────────────────────
 // Bundle helper – builds "R2 Finder.app"/{Contents/{MacOS,Resources},Info.plist}
 // ─────────────────────────────────────────────────────────────────────────────
-fn makeBundleStep(b: *std.Build, exe: *std.Build.Step.Compile) *std.Build.Step {
+fn makeBundleStep(b: *std.Build, exe: *std.Build.Step.Compile, version: []const u8) *std.Build.Step {
+    // Strip a leading 'v' from tag-style versions (e.g. "v1.4.0" -> "1.4.0")
+    const clean_version = if (version.len > 0 and version[0] == 'v') version[1..] else version;
+
     // 1) Write Info.plist
-    const plist =
+    const plist = b.fmt(
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
         \\ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -96,8 +101,8 @@ fn makeBundleStep(b: *std.Build, exe: *std.Build.Step.Compile) *std.Build.Step {
         \\  <key>CFBundleName</key>              <string>R2 Finder</string>
         \\  <key>CFBundleDisplayName</key>       <string>R2 Finder</string>
         \\  <key>CFBundleIdentifier</key>        <string>com.example.r2finder</string>
-        \\  <key>CFBundleVersion</key>           <string>1.0</string>
-        \\  <key>CFBundleShortVersionString</key><string>1.0</string>
+        \\  <key>CFBundleVersion</key>           <string>{s}</string>
+        \\  <key>CFBundleShortVersionString</key><string>{s}</string>
         \\  <key>CFBundleExecutable</key>        <string>rs_2finder</string>
         \\  <key>CFBundleIconFile</key>          <string>AppIcon</string>
         \\  <key>CFBundlePackageType</key>       <string>APPL</string>
@@ -110,7 +115,7 @@ fn makeBundleStep(b: *std.Build, exe: *std.Build.Step.Compile) *std.Build.Step {
         \\    <string>R2 Finder uses AppleScript to move files to the Trash.</string>
         \\</dict>
         \\</plist>
-    ;
+    , .{ clean_version, clean_version });
     const gen_plist = b.addWriteFile("Info.plist", plist);
     const install_plist = b.addInstallFile(
         gen_plist.getDirectory().path(b, "Info.plist"),
