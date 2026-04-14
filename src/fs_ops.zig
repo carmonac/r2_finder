@@ -45,25 +45,21 @@ comptime {
 // Global allocator (thread-safe GPA)
 // ---------------------------------------------------------------------------
 
-var gpa_state = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
+var gpa_state: std.heap.DebugAllocator(.{ .thread_safe = true }) = .init;
 pub const gpa = gpa_state.allocator();
 
 // App-level Io instance backed by a proper threaded implementation.
 // Initialized at runtime in init() because Threaded.init calls sysctlbyname.
 const Io = std.Io;
 var app_io_instance: Io.Threaded = Io.Threaded.init_single_threaded;
-var app_io_initialized = false;
 
 pub fn getIo() Io {
     if (builtin.is_test) return std.testing.io;
-    if (app_io_initialized) return app_io_instance.io();
-    // Fallback before init — shouldn't happen in practice
-    return app_io_instance.ioBasic();
+    return app_io_instance.io();
 }
 
 pub fn init() void {
     app_io_instance = Io.Threaded.init(gpa_state.allocator(), .{});
-    app_io_initialized = true;
 }
 
 export fn zig_init() void {
