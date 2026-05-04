@@ -178,6 +178,7 @@ typedef NS_ENUM(NSInteger, ClipboardOperation) {
 @property (nonatomic, strong) dispatch_queue_t            loadQueue;
 @property (nonatomic)         NSUInteger                  loadGeneration;
 @property (nonatomic)         BOOL                        isLoading;
+@property (nonatomic, strong) dispatch_source_t           reloadDebounce;
 @end
 
 @implementation FileViewController
@@ -194,8 +195,28 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
                              const FSEventStreamEventId eventIds[]) {
     FileViewController *vc = (__bridge FileViewController *)clientCallBackInfo;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [vc loadPath:vc.currentPath];
+        [vc scheduleReload];
     });
+}
+
+// Coalesce bursts of FSEvents (e.g. rsync deleting many files in a row over
+// SMB) into a single reload that fires after a short quiet period.
+- (void)scheduleReload {
+    if (!_reloadDebounce) {
+        _reloadDebounce = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                                 dispatch_get_main_queue());
+        __weak typeof(self) wself = self;
+        dispatch_source_set_event_handler(_reloadDebounce, ^{
+            typeof(self) sself = wself;
+            if (!sself) return;
+            dispatch_source_set_timer(sself.reloadDebounce, DISPATCH_TIME_FOREVER, 0, 0);
+            if (sself.currentPath) [sself loadPath:sself.currentPath];
+        });
+        dispatch_resume(_reloadDebounce);
+    }
+    dispatch_source_set_timer(_reloadDebounce,
+                              dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_MSEC),
+                              DISPATCH_TIME_FOREVER, 50 * NSEC_PER_MSEC);
 }
 
 - (void)startWatchingPath:(NSString *)path {
@@ -223,6 +244,10 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
 
 - (void)dealloc {
     [self stopWatching];
+    if (_reloadDebounce) {
+        dispatch_source_cancel(_reloadDebounce);
+        _reloadDebounce = nil;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,12 +465,16 @@ static void fsEventsCallback(ConstFSEventStreamRef streamRef,
     _currentPath = [path copy];
     if (pathChanged) [self startWatchingPath:path];
 
-    // Immediately clear content and show spinner
-    [_entries removeAllObjects];
-    [self reloadAllViews];
-    _isLoading = YES;
-    [_loadingSpinner startAnimation:nil];
-    [self updateStatusBar];
+    // On navigation, blank the view immediately so the user sees they've moved.
+    // On in-place refresh (FSEvents), keep the existing entries on screen so the
+    // UI doesn't flicker through "Cargando…" every time rsync deletes a file.
+    if (pathChanged) {
+        [_entries removeAllObjects];
+        [self reloadAllViews];
+        _isLoading = YES;
+        [_loadingSpinner startAnimation:nil];
+        [self updateStatusBar];
+    }
 
     // Capture generation to detect superseded loads
     NSUInteger thisGeneration = ++_loadGeneration;
