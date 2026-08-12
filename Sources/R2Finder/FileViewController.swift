@@ -83,6 +83,11 @@ final class FileViewController: NSViewController {
     // be reused.
     private var loadedShowHidden = FileViewController.showHidden
 
+    // The selection the Quick Look panel was last told about, so a refresh
+    // that re-applies the same selection doesn't make it re-render (see
+    // syncPreviewPanel).
+    private var previewedPaths: [String] = []
+
     // Loading
     private let loadQueue = DispatchQueue(label: "com.r2finder.dirload")
     // nonisolated(unsafe): mutated only on the main actor; the background
@@ -386,18 +391,49 @@ final class FileViewController: NSViewController {
                 self.isLoading = false
                 self.loadingSpinner.stopAnimation(nil)
 
+                // An in-place refresh that produced exactly the same listing
+                // must not touch the views: rebuilding the rows re-applies the
+                // selection, which makes the Quick Look panel re-render, and
+                // re-fetches every icon over the wire. Network volumes report
+                // a directory change on almost any access — including the
+                // Quick Look daemon reading the file being previewed — so
+                // these no-op refreshes arrive continuously.
+                if !pathChanged, showHidden == self.loadedShowHidden,
+                   self.entries.count == newEntries.count,
+                   zip(self.entries, newEntries).allSatisfy({ $0.matchesListing(of: $1) }) {
+                    self.updateStatusBar()
+                    // FSEvents is recursive, so the change may be inside an
+                    // expanded subfolder even when this level is untouched.
+                    for fe in self.entries
+                    where fe.childrenLoaded && self.expandedOutlinePaths.contains(fe.path) {
+                        self.loadChildren(for: fe, force: true)
+                    }
+                    // No-op unless icons are still missing (e.g. the refresh
+                    // landed mid fill-in).
+                    self.fillIcons(for: self.entries, generation: thisGeneration)
+                    return
+                }
+
                 // On an in-place refresh (FSEvents during a transfer or
                 // extraction), carry over the already-loaded icons by path —
                 // otherwise every reload flashes placeholder icons until the
                 // background fill-in catches up ("blinking").
-                var oldIcons: [String: NSImage] = [:]
-                for e in self.entries where e.icon != nil {
-                    oldIcons[e.path] = e.icon
-                }
-                if !oldIcons.isEmpty {
+                var oldEntries: [String: FileEntry] = [:]
+                for e in self.entries { oldEntries[e.path] = e }
+                if !oldEntries.isEmpty {
                     for fe in newEntries {
-                        if let icon = oldIcons[fe.path] { fe.icon = icon }
+                        guard let old = oldEntries[fe.path], old.icon != nil else { continue }
+                        fe.icon = old.icon
+                        fe.hasRealIcon = old.hasRealIcon
                     }
+                }
+
+                // The previewed file itself changed on disk (a transfer into
+                // it finished, say) – that is a real reason to re-render.
+                let previewStale = newEntries.contains { fe in
+                    guard self.previewedPaths.contains(fe.path),
+                          let old = oldEntries[fe.path] else { return false }
+                    return !old.matchesListing(of: fe)
                 }
 
                 // Likewise carry over expanded subtrees. Children now load
@@ -422,6 +458,7 @@ final class FileViewController: NSViewController {
                 self.loadedShowHidden = showHidden
                 self.reloadAllViews()
                 self.updateStatusBar()
+                if previewStale { self.syncPreviewPanel(force: true) }
 
                 // The carried-over subtrees are the *previous* listing; refresh
                 // them off-main so an expanded folder tracks the transfer too.
@@ -454,15 +491,22 @@ final class FileViewController: NSViewController {
     }
 
     private func fillIcons(for entries: [FileEntry], generation: Int) {
+        // Only what's still showing a placeholder: on a refresh the icons
+        // carried over from the previous listing are already the real ones,
+        // and re-fetching them means another round of metadata I/O per file.
+        let pending = entries.filter { !$0.hasRealIcon }
+        guard !pending.isEmpty else { return }
+
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let ws = NSWorkspace.shared
-            for fe in entries {
+            for fe in pending {
                 guard let self, self.loadGeneration == generation else { return }
                 let img = ws.icon(forFile: fe.path)
                 img.size = NSSize(width: 16, height: 16)
                 Task { @MainActor in
                     guard self.loadGeneration == generation else { return }
                     fe.icon = img
+                    fe.hasRealIcon = true
                 }
             }
             Task { @MainActor [weak self] in
@@ -491,7 +535,12 @@ final class FileViewController: NSViewController {
         let expanded = expandedOutlinePaths
 
         isRestoringOutlineState = true
-        defer { isRestoringOutlineState = false }
+        defer {
+            isRestoringOutlineState = false
+            // One sync with the final selection, instead of one per
+            // intermediate state the rebuild passes through.
+            syncPreviewPanel()
+        }
 
         outlineView.reloadData()
         guard !expanded.isEmpty || !selectedOutlinePaths.isEmpty else { return }
@@ -599,10 +648,22 @@ final class FileViewController: NSViewController {
                 // A newer load replaced the whole tree — `entry` is orphaned.
                 guard self.loadGeneration == generation else { return }
 
+                // Nothing changed in this subtree – leave its rows alone, for
+                // the same reason loadPath bails out on an identical listing.
+                if entry.childrenLoaded, entry.children.count == children.count,
+                   zip(entry.children, children).allSatisfy({ $0.matchesListing(of: $1) }) {
+                    self.fillIcons(for: entry.children, generation: generation)
+                    return
+                }
+
                 // Keep icons already fetched for this subtree (in-place refresh).
-                var oldIcons: [String: NSImage] = [:]
-                for e in entry.children where e.icon != nil { oldIcons[e.path] = e.icon }
-                for fe in children where oldIcons[fe.path] != nil { fe.icon = oldIcons[fe.path] }
+                var oldEntries: [String: FileEntry] = [:]
+                for e in entry.children where e.icon != nil { oldEntries[e.path] = e }
+                for fe in children {
+                    guard let old = oldEntries[fe.path] else { continue }
+                    fe.icon = old.icon
+                    fe.hasRealIcon = old.hasRealIcon
+                }
 
                 entry.children = children
                 entry.childrenLoaded = true
@@ -622,6 +683,11 @@ final class FileViewController: NSViewController {
                 }
                 self.restoreOutlineSelection()
                 self.isRestoringOutlineState = false
+                // Listing a subfolder doesn't change what's selected, so this
+                // normally does nothing — which is the point: on a network
+                // share these completions arrive one per subfolder, and each
+                // one used to re-render the Quick Look preview.
+                self.syncPreviewPanel()
 
                 self.fillIcons(for: children, generation: generation)
             }
@@ -687,6 +753,27 @@ final class FileViewController: NSViewController {
                 forClasses: [NSURL.self],
                 options: [.urlReadingFileURLsOnly: true]) as? [URL] else { return [] }
         return urls.map(\.path)
+    }
+
+    /// Reload the Quick Look panel, but only when the selection actually
+    /// changed. Every listing refresh rebuilds the outline and re-applies the
+    /// selection by path, which fires selectionDidChange with an identical
+    /// selection. On a network volume those refreshes arrive constantly — the
+    /// SMB server reports a directory change whenever anything touches it,
+    /// including the Quick Look daemon reading the file being previewed — so
+    /// reloading unconditionally makes the preview re-render in a loop.
+    func syncPreviewPanel(force: Bool = false) {
+        guard QLPreviewPanel.sharedPreviewPanelExists(),
+              QLPreviewPanel.shared().isVisible else { return }
+        let paths = selectedPaths()
+        guard force || paths != previewedPaths else { return }
+        previewedPaths = paths
+        QLPreviewPanel.shared().reloadData()
+    }
+
+    /// Called when the panel opens: whatever is selected then is what it shows.
+    func notePreviewPanelOpened() {
+        previewedPaths = selectedPaths()
     }
 
     func selectedPaths() -> [String] {

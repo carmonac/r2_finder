@@ -135,11 +135,13 @@ extension FileViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             selectedOutlinePaths = Set(outlineView.selectedRowIndexes.compactMap {
                 (outlineView.item(atRow: $0) as? FileEntry)?.path
             })
+            syncPreviewPanel()
+            return
         }
-        if QLPreviewPanel.sharedPreviewPanelExists(),
-           QLPreviewPanel.shared().isVisible {
-            QLPreviewPanel.shared().reloadData()
-        }
+        // Mid-reload the outline has no rows yet, so the selection reads as
+        // empty and syncing here would blank the Quick Look panel and make it
+        // re-render a beat later, once the selection is restored. The restore
+        // path syncs once at the end instead.
     }
 
     // Expansion is likewise tracked as it happens rather than read back from
@@ -236,15 +238,11 @@ extension FileViewController: NSCollectionViewDataSource, NSCollectionViewDelega
     }
 
     func collectionView(_ cv: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
-            QLPreviewPanel.shared().reloadData()
-        }
+        syncPreviewPanel()
     }
 
     func collectionView(_ cv: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
-        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
-            QLPreviewPanel.shared().reloadData()
-        }
+        syncPreviewPanel()
     }
 
     func contextMenu(forCollectionView cv: NSCollectionView, at point: NSPoint) -> NSMenu? {
@@ -328,9 +326,7 @@ extension FileViewController: MillerColumnViewDelegate {
     func columnView(_ v: MillerColumnView, didSelectFileInDirectory path: String) {
         setCurrentPathFromColumns(path)
         updateStatusBar()
-        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
-            QLPreviewPanel.shared().reloadData()
-        }
+        syncPreviewPanel()
     }
 
     func columnView(_ v: MillerColumnView, open entry: FileEntry) {
@@ -584,6 +580,7 @@ extension FileViewController: @preconcurrency QLPreviewPanelDataSource,
         MainActor.assumeIsolated {
             panel.dataSource = self
             panel.delegate = self
+            notePreviewPanelOpened()
         }
     }
 

@@ -20,8 +20,19 @@ final class FileEntry: @unchecked Sendable {
     var size: UInt64 = 0
     var mtime: Int64 = 0
     var icon: NSImage?
+    /// False while `icon` is still the cheap placeholder, so a refresh only
+    /// re-fetches the icons it is actually missing (icon(forFile:) does
+    /// synchronous metadata I/O — expensive over SMB).
+    var hasRealIcon = false
     var children: [FileEntry] = []
     var childrenLoaded = false
+
+    /// Same file, same state on disk? Compares what a directory listing can
+    /// see, not the derived UI state (icons, loaded children).
+    func matchesListing(of other: FileEntry) -> Bool {
+        path == other.path && isDir == other.isDir && isSymlink == other.isSymlink
+            && size == other.size && mtime == other.mtime
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
