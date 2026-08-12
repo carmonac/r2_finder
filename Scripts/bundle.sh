@@ -56,6 +56,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key>   <true/>
   <key>NSPrincipalClass</key>          <string>NSApplication</string>
   <key>NSSupportsAutomaticTermination</key><false/>
+  <!-- macOS 15+ gates every local-network access (mDNS browsing and the
+       port-445 subnet scan) behind user consent. Without this key the
+       system denies both silently and the RED section stays empty. -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>R2 Finder busca ordenadores y servidores de archivos en tu red local para mostrarlos en la barra lateral.</string>
+  <!-- Bonjour service types the app is allowed to browse for. -->
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_smb._tcp</string>
+    <string>_afpovertcp._tcp</string>
+    <string>_device-info._tcp</string>
+  </array>
 </dict>
 </plist>
 PLIST
@@ -70,4 +82,15 @@ cp bin/7zz       "$APP/Contents/Resources/7zz"
 cp bin/rsync     "$APP/Contents/Resources/rsync"
 chmod 755 "$APP/Contents/Resources/7zz" "$APP/Contents/Resources/rsync"
 
-echo "OK: $APP (version ${VERSION})"
+# 4) Signature. SwiftPM leaves the binary ad-hoc "linker-signed", which does
+#    not seal Info.plist — so the privacy usage strings above are ignored and
+#    the local-network permission never sticks. Signing the bundle fixes both.
+#    Set CODESIGN_IDENTITY to a Developer ID to get a stable identity across
+#    builds (with ad-hoc "-" the app is a new app to TCC after every rebuild,
+#    so macOS asks for local network access again).
+IDENTITY="${CODESIGN_IDENTITY:--}"
+codesign --force --sign "$IDENTITY" \
+         --identifier com.example.r2finder \
+         "$APP"
+
+echo "OK: $APP (version ${VERSION}, signed with '${IDENTITY}')"

@@ -12,7 +12,10 @@ let package = Package(
         // Service layer: filesystem, volumes, rsync transfers, 7zz archives.
         .target(
             name: "R2FinderServices",
-            path: "Sources/R2FinderServices"
+            path: "Sources/R2FinderServices",
+            // NetFS drives the system mount/authentication machinery used by
+            // NetworkMountService (see Sources/R2FinderServices/NetworkMountService.swift).
+            linkerSettings: [.linkedFramework("NetFS")]
         ),
         // The app: entry point + AppKit UI. Named rs_2finder so the produced
         // binary matches CFBundleExecutable in Info.plist.

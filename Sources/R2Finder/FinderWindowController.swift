@@ -252,6 +252,10 @@ final class FinderWindowController: NSWindowController, NSToolbarDelegate,
         fileVC.createNewFolder(inPath: current)
     }
 
+    @IBAction func connectToServerAction(_ sender: Any?) {
+        sidebarVC.presentConnectToServer(sender)
+    }
+
     @IBAction func goToFolderAction(_ sender: Any?) {
         GoToFolderPanel.runAsSheet(on: window) { [weak self] path in
             if let path { self?.navigateToPath(path) }

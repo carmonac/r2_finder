@@ -97,6 +97,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                          keyEquivalent: "N") // Cmd+Shift+N
 
         fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: "Ir a la carpeta…",
+                         action: #selector(FinderWindowController.goToFolderAction(_:)),
+                         keyEquivalent: "G") // Cmd+Shift+G
+        fileMenu.addItem(withTitle: "Conectar al servidor…",
+                         action: #selector(FinderWindowController.connectToServerAction(_:)),
+                         keyEquivalent: "k") // Cmd+K, as in Finder
+
+        fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Cerrar ventana",
                          action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
 

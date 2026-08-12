@@ -26,6 +26,9 @@ private final class SidebarItem {
     let icon: NSImage?
     let isHeader: Bool
     let networkHostname: String?  // non-nil for network hosts
+    /// Non-nil for rows that run a command instead of navigating
+    /// ("Conectar al servidor…").
+    let action: Selector?
     var children: [SidebarItem] = []
 
     init(header title: String) {
@@ -34,6 +37,7 @@ private final class SidebarItem {
         icon = nil
         isHeader = true
         networkHostname = nil
+        action = nil
     }
 
     init(name: String, path: String, icon: NSImage?) {
@@ -42,6 +46,7 @@ private final class SidebarItem {
         self.icon = icon
         isHeader = false
         networkHostname = nil
+        action = nil
     }
 
     init(networkHost name: String, hostname: String, icon: NSImage?) {
@@ -50,6 +55,16 @@ private final class SidebarItem {
         self.icon = icon
         isHeader = false
         networkHostname = hostname
+        action = nil
+    }
+
+    init(actionName name: String, icon: NSImage?, action: Selector) {
+        self.name = name
+        path = nil
+        self.icon = icon
+        isHeader = false
+        networkHostname = nil
+        self.action = action
     }
 }
 
@@ -60,7 +75,8 @@ private final class SidebarItem {
 final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
                                    NSOutlineViewDelegate,
                                    @preconcurrency NetServiceBrowserDelegate,
-                                   @preconcurrency NetServiceDelegate {
+                                   @preconcurrency NetServiceDelegate,
+                                   NSMenuDelegate {
 
     weak var delegate: SidebarViewControllerDelegate?
 
@@ -74,10 +90,16 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
 
     // Network discovery
     // nonisolated(unsafe): only assigned on the main actor; deinit
-    // (nonisolated) needs to stop it.
-    private nonisolated(unsafe) var smbBrowser: NetServiceBrowser?
+    // (nonisolated) needs to stop them.
+    private nonisolated(unsafe) var browsers: [NetServiceBrowser] = []
     private var discoveredServices: [NetService] = []
     private var networkHeader = SidebarItem(header: "RED")
+    /// Bumped on every rescan; probes from an older scan are ignored so a
+    /// refresh can't be polluted by results the previous one is still yielding.
+    private var discoveryGeneration = 0
+    /// Addresses with a mount request in flight, so a second click (or a
+    /// re-selection of the same row) doesn't stack up dialogs.
+    private var mountsInFlight: Set<String> = []
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
@@ -112,17 +134,29 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         outlineView.reloadData()
         outlineView.expandItem(nil, expandChildren: true)
 
+        // Right-click menu: connect / refresh on the RED section, connect on
+        // a discovered host.
+        let menu = NSMenu()
+        menu.delegate = self
+        outlineView.menu = menu
+
         // Observe workspace notifications for volume mount/unmount
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(self, selector: #selector(volumesChanged(_:)),
                            name: NSWorkspace.didMountNotification, object: nil)
         center.addObserver(self, selector: #selector(volumesChanged(_:)),
                            name: NSWorkspace.didUnmountNotification, object: nil)
+        // Machines come and go while the app sits in the background; rescan
+        // when it comes back to the front (throttled in refreshNetworkIfStale).
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appDidBecomeActive(_:)),
+            name: NSApplication.didBecomeActiveNotification, object: nil)
     }
 
     deinit {
-        smbBrowser?.stop()
+        browsers.forEach { $0.stop() }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
     }
 
     // ─────────────
@@ -148,7 +182,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
 
         // ── Network ───────────────────────────────────────────────────────
         networkHeader = SidebarItem(header: "RED")
+        addConnectRow()
         sections.append(networkHeader)
+        lastDiscoveryStart = Date()
         startNetworkDiscovery()
     }
 
@@ -208,15 +244,51 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
 
     private func startNetworkDiscovery() {
         discoveredServices = []
+        discoveryGeneration += 1
 
-        // 1) Bonjour – finds servers that advertise via mDNS/Avahi
-        let browser = NetServiceBrowser()
-        browser.delegate = self
-        browser.searchForServices(ofType: "_smb._tcp.", inDomain: "")
-        smbBrowser = browser
+        // 1) Bonjour – finds servers that advertise via mDNS/Avahi.
+        //    Requires local network access on macOS 15+; without the
+        //    NSLocalNetworkUsageDescription / NSBonjourServices keys in
+        //    Info.plist the browse silently returns nothing (see Scripts/bundle.sh).
+        browsers.forEach { $0.stop() }
+        browsers = []
+        for type in ["_smb._tcp.", "_afpovertcp._tcp."] {
+            let browser = NetServiceBrowser()
+            browser.delegate = self
+            browser.searchForServices(ofType: type, inDomain: "")
+            browsers.append(browser)
+        }
 
         // 2) Port scan – finds SMB servers that don't advertise via Bonjour
-        scanSubnetForSMB()
+        //    (Windows machines, most NAS boxes in their default config).
+        scanSubnetForSMB(generation: discoveryGeneration)
+    }
+
+    /// Throw away what we found and look again.
+    @objc func refreshNetwork(_ sender: Any?) {
+        lastDiscoveryStart = Date()
+        networkHeader.children.removeAll()
+        addConnectRow()
+        outlineView.reloadData()
+        outlineView.expandItem(nil, expandChildren: true)
+        startNetworkDiscovery()
+    }
+
+    private var lastDiscoveryStart = Date.distantPast
+
+    @objc private func appDidBecomeActive(_ note: Notification) {
+        // Cheap enough to redo, but not on every cmd-tab.
+        guard Date().timeIntervalSince(lastDiscoveryStart) > 60 else { return }
+        refreshNetwork(nil)
+    }
+
+    /// The RED section always ends with a "Conectar al servidor…" row, so a
+    /// host that discovery misses is still one click away.
+    private func addConnectRow() {
+        let icon = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: nil)
+        networkHeader.children.append(SidebarItem(
+            actionName: "Conectar al servidor…", icon: icon,
+            action: #selector(presentConnectToServer(_:))))
     }
 
     // ─── Bonjour delegate ────────────────────────────────────────────────────
@@ -250,7 +322,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
 
     // ─── Subnet scan for port 445 (SMB) ──────────────────────────────────────
 
-    private func scanSubnetForSMB() {
+    private func scanSubnetForSMB(generation: Int) {
         DispatchQueue.global().async { [weak self] in
             // Get local IPv4 addresses and their netmasks
             var ifaddrsPtr: UnsafeMutablePointer<ifaddrs>?
@@ -285,7 +357,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
                 for i in 1...max(range, 1) where base + i != ip { // skip self
                     let target = base + i
                     queue.async(group: group) { [weak self] in
-                        self?.probeSMB(atIP: target)
+                        self?.probeSMB(atIP: target, generation: generation)
                     }
                 }
 
@@ -301,7 +373,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    nonisolated private func probeSMB(atIP ip: UInt32) {
+    nonisolated private func probeSMB(atIP ip: UInt32, generation: Int) {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return }
         defer { close(fd) }
@@ -362,6 +434,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         }
 
         Task { @MainActor in
+            // A refresh started after this probe – its results are stale.
+            guard generation == self.discoveryGeneration else { return }
             self.addNetworkHost(name: displayName, hostname: hostname)
         }
     }
@@ -369,24 +443,99 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
     // ─── Common helper ───────────────────────────────────────────────────────
 
     private func addNetworkHost(name: String, hostname: String) {
-        // Avoid duplicates
-        guard !networkHeader.children.contains(where: { $0.networkHostname == hostname }) else {
-            return
+        // Avoid duplicates: the same machine can arrive twice, e.g. as
+        // "nas.local" from Bonjour and as "nas.local" (or its IP) from the
+        // port scan, so compare on the short name too.
+        let shortName = Self.shortHostName(hostname)
+        let known = networkHeader.children.contains { item in
+            guard let existing = item.networkHostname else { return false }
+            return existing.caseInsensitiveCompare(hostname) == .orderedSame
+                || Self.shortHostName(existing).caseInsensitiveCompare(shortName) == .orderedSame
         }
+        guard !known else { return }
+
         let icon = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
             ?? NSImage(named: NSImage.networkName)
-        networkHeader.children.append(SidebarItem(networkHost: name, hostname: hostname, icon: icon))
+        let item = SidebarItem(networkHost: name, hostname: hostname, icon: icon)
+        // Keep "Conectar al servidor…" last.
+        let insertAt = networkHeader.children.firstIndex { $0.action != nil }
+            ?? networkHeader.children.count
+        networkHeader.children.insert(item, at: insertAt)
         outlineView.reloadData()
         outlineView.expandItem(nil, expandChildren: true)
     }
 
+    /// "nas.local." / "192.168.1.10" → "nas" / "192.168.1.10"
+    private static func shortHostName(_ host: String) -> String {
+        var h = host
+        if h.hasSuffix(".") { h.removeLast() }
+        // Don't chop an IPv4 literal into "192".
+        if h.allSatisfy({ $0.isNumber || $0 == "." }) { return h }
+        return h.components(separatedBy: ".").first ?? h
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARK: – Mounting
+    // ─────────────────────────────────────────────────────────────────────────
+
     private func connectToNetworkHost(_ item: SidebarItem) {
-        // Open smb://hostname – macOS handles authentication and mounting.
-        // Once mounted the volume appears in /Volumes and our NSWorkspace
-        // mount notification refreshes DISPOSITIVOS automatically.
-        guard let hostname = item.networkHostname,
-              let url = URL(string: "smb://\(hostname)") else { return }
-        NSWorkspace.shared.open(url)
+        guard let hostname = item.networkHostname else { return }
+        connectToServer(address: "smb://\(hostname)")
+    }
+
+    /// Ask the user for an address and mount it.
+    @objc func presentConnectToServer(_ sender: Any?) {
+        ConnectToServerPanel.run(on: view.window) { [weak self] address in
+            guard let self, let address else { return }
+            connectToServer(address: address)
+        }
+    }
+
+    /// Mount `address` through NetFS — the same path Finder takes, so the
+    /// standard authentication sheet and share picker appear — then navigate
+    /// to the new mount point. DISPOSITIVOS refreshes itself from the
+    /// NSWorkspace mount notification.
+    private func connectToServer(address: String) {
+        guard let url = NetworkMountService.normalizedURL(from: address) else {
+            presentMountError("La dirección '\(address)' no es válida.", address: address)
+            return
+        }
+        let key = url.absoluteString
+        guard !mountsInFlight.contains(key) else { return }
+        mountsInFlight.insert(key)
+
+        NetworkMountService.mount(url) { [weak self] result in
+            guard let self else { return }
+            mountsInFlight.remove(key)
+            switch result {
+            case .success(let mountPoints):
+                ConnectToServerPanel.remember(address)
+                if sections.count >= 2 { populateVolumes(sections[1]) }
+                outlineView.reloadData()
+                outlineView.expandItem(nil, expandChildren: true)
+                if let first = mountPoints.first {
+                    delegate?.sidebar(self, didSelectPath: first)
+                    highlightPath(first)
+                }
+            case .failure(.cancelled):
+                break
+            case .failure(let error):
+                presentMountError(error.message, address: url.absoluteString)
+            }
+        }
+    }
+
+    private func presentMountError(_ message: String, address: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "No se pudo conectar con \(address)"
+        alert.informativeText = message
+        alert.addButton(withTitle: "Aceptar")
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -529,12 +678,52 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         guard row >= 0, let item = outlineView.item(atRow: row) as? SidebarItem,
               !item.isHeader else { return }
 
+        if let action = item.action {
+            // Action rows don't represent a location – drop the selection so
+            // the row can be clicked again right away.
+            outlineView.deselectAll(nil)
+            NSApp.sendAction(action, to: self, from: nil)
+            return
+        }
         if item.networkHostname != nil {
             connectToNetworkHost(item)
             return
         }
         guard let path = item.path else { return }
         delegate?.sidebar(self, didSelectPath: path)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARK: – NSMenuDelegate (right-click on the sidebar)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let row = outlineView.clickedRow
+        let item = row >= 0 ? outlineView.item(atRow: row) as? SidebarItem : nil
+
+        if let hostname = item?.networkHostname {
+            let connect = menu.addItem(withTitle: "Conectar a \(hostname)",
+                                       action: #selector(connectToClickedHost(_:)),
+                                       keyEquivalent: "")
+            connect.target = self
+            menu.addItem(.separator())
+        }
+
+        let connectTo = menu.addItem(withTitle: "Conectar al servidor…",
+                                     action: #selector(presentConnectToServer(_:)),
+                                     keyEquivalent: "")
+        connectTo.target = self
+        let refresh = menu.addItem(withTitle: "Actualizar red",
+                                   action: #selector(refreshNetwork(_:)),
+                                   keyEquivalent: "")
+        refresh.target = self
+    }
+
+    @objc private func connectToClickedHost(_ sender: Any?) {
+        let row = outlineView.clickedRow
+        guard row >= 0, let item = outlineView.item(atRow: row) as? SidebarItem else { return }
+        connectToNetworkHost(item)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
