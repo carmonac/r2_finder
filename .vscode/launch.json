@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:rs_2finder}",
+            "name": "Debug rs_2finder",
+            "target": "rs_2finder",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug rs_2finder"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:rs_2finder}",
+            "name": "Release rs_2finder",
+            "target": "rs_2finder",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release rs_2finder"
+        }
+    ]
+}
