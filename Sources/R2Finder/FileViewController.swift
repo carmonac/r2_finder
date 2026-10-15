@@ -47,6 +47,11 @@ final class FileViewController: NSViewController {
                 // Gallery not yet implemented – fall back to list
                 scrollView.isHidden = false
             }
+            // Clicking through columns moves currentPath without relisting
+            // `entries`, so the list/icon views would show a stale folder.
+            if oldValue == .columns, viewMode != .columns {
+                loadPath(currentPath)
+            }
         }
     }
 
@@ -350,6 +355,16 @@ final class FileViewController: NSViewController {
         currentPath = path
         if pathChanged { startWatching(path: path) }
 
+        // Navigating re-roots the columns; a refresh of the same path
+        // (FSEvents, after a transfer) updates the open columns in place.
+        if viewMode == .columns {
+            if pathChanged {
+                columnView.reload(fromPath: path)
+            } else {
+                columnView.refresh()
+            }
+        }
+
         // On navigation, blank the view immediately so the user sees they've
         // moved. On in-place refresh (FSEvents), keep the existing entries on
         // screen so the UI doesn't flicker through "Cargando…" every time
@@ -516,12 +531,12 @@ final class FileViewController: NSViewController {
         }
     }
 
+    /// List and icon views only. The column view manages its own listings
+    /// (see loadPath) — rebuilding it here on every icon fill-in or clipboard
+    /// change collapsed the open columns down to one.
     func reloadAllViews() {
         reloadOutlinePreservingState()
         collectionView.reloadData()
-        if viewMode == .columns {
-            columnView.reload(fromPath: currentPath)
-        }
     }
 
     /// Reload the outline without losing the user's place. Reloads rebuild the
@@ -854,9 +869,10 @@ final class FileViewController: NSViewController {
             let resp = alert.runModal()
             if resp == .alertSecondButtonReturn { return }
             startTransfer(paths: paths, dstDir: dstDir,
-                          overwrite: resp == .alertFirstButtonReturn, isMove: isMove)
+                          conflict: resp == .alertFirstButtonReturn ? .replace : .keepBoth,
+                          isMove: isMove)
         } else {
-            startTransfer(paths: paths, dstDir: dstDir, overwrite: false, isMove: isMove)
+            startTransfer(paths: paths, dstDir: dstDir, conflict: .skip, isMove: isMove)
         }
     }
 
@@ -887,7 +903,8 @@ final class FileViewController: NSViewController {
         return pwc
     }
 
-    private func startTransfer(paths: [String], dstDir: String, overwrite: Bool, isMove: Bool) {
+    private func startTransfer(paths: [String], dstDir: String,
+                               conflict: TransferService.ConflictPolicy, isMove: Bool) {
         guard let rsync = Self.rsyncPath else {
             showErrorMessage("No se encontró el binario rsync")
             return
@@ -896,10 +913,10 @@ final class FileViewController: NSViewController {
         let (onProgress, onDone) = progressHandlers(pwc)
         if isMove {
             TransferService.move(rsyncPath: rsync, sources: paths, dstDir: dstDir,
-                                 overwrite: overwrite, onProgress: onProgress, onDone: onDone)
+                                 conflict: conflict, onProgress: onProgress, onDone: onDone)
         } else {
             TransferService.copy(rsyncPath: rsync, sources: paths, dstDir: dstDir,
-                                 overwrite: overwrite, onProgress: onProgress, onDone: onDone)
+                                 conflict: conflict, onProgress: onProgress, onDone: onDone)
         }
     }
 

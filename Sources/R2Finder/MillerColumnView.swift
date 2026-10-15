@@ -128,6 +128,45 @@ final class MillerColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate
         activeColumnIndex = 0
     }
 
+    /// Re-list every open column in place (FSEvents, show-hidden toggle,
+    /// after a transfer), keeping the chain of open folders and the selection.
+    /// Unlike reload(fromPath:) this never throws away the user's place.
+    func refresh() {
+        for column in columns {
+            let id = column.id
+            delegate?.columnView(self, entriesForPath: column.path) { [weak self] entries in
+                self?.applyRefreshed(entries, toColumnID: id)
+            }
+        }
+    }
+
+    private func applyRefreshed(_ entries: [FileEntry], toColumnID id: Int) {
+        guard let idx = columns.firstIndex(where: { $0.id == id }) else { return }
+        let old = columns[idx].entries
+        // Network volumes report changes on almost any access: an unchanged
+        // listing must leave the rows (and the selection) alone.
+        if old.count == entries.count,
+           zip(old, entries).allSatisfy({ $0.matchesListing(of: $1) }) { return }
+
+        let table = columns[idx].table
+        let selected = Set(table.selectedRowIndexes.compactMap { $0 < old.count ? old[$0].path : nil })
+
+        isRebuilding = true
+        defer { isRebuilding = false }
+        columns[idx].entries = entries
+        table.reloadData()
+        let rows = IndexSet(entries.indices.filter { selected.contains(entries[$0].path) })
+        table.selectRowIndexes(rows, byExtendingSelection: false)
+
+        // The folder this column had opened is gone: close the columns past it.
+        if idx + 1 < columns.count,
+           !entries.contains(where: { $0.isDir && $0.path == columns[idx + 1].path }) {
+            while columns.count > idx + 1 { removeLastColumn() }
+            activeColumnIndex = min(activeColumnIndex, idx)
+            delegate?.columnView(self, didSelectFileInDirectory: columns[idx].path)
+        }
+    }
+
     /// Selected paths of the column the user last interacted with.
     var selectedPaths: [String] {
         guard activeColumnIndex < columns.count else { return [] }
