@@ -12,14 +12,14 @@ final class ProgressWindowController: NSWindowController {
     private let progressBar = NSProgressIndicator()
     private let titleLabel: NSTextField
     private let detailLabel: NSTextField
-    private let speedLabel = NSTextField(labelWithString: "Calculando…")
+    private let speedLabel = NSTextField(labelWithString: String(localized: "Calculating…"))
     private var cancelButton: NSButton!
 
     init(title: String, destinationFolder dst: String, refreshCallback: @escaping () -> Void) {
         self.refreshCallback = refreshCallback
         operationTitle = title
         titleLabel = NSTextField(labelWithString: "\(title)…")
-        detailLabel = NSTextField(labelWithString: "Destino: \(dst)")
+        detailLabel = NSTextField(labelWithString: String(format: String(localized: "Destination: %@"), dst))
 
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 160),
                            styleMask: [.titled, .closable],
@@ -108,7 +108,7 @@ final class ProgressWindowController: NSWindowController {
                 progressBar.startAnimation(nil)
             }
             let sizeStr = total > 0 ? formattedSize(total) : formattedSize(bytesDone)
-            speedLabel.stringValue = "\(sizeStr)   Sincronizando…"
+            speedLabel.stringValue = sizeStr + "   " + String(localized: "Syncing…")
             return
         }
 
@@ -134,9 +134,9 @@ final class ProgressWindowController: NSWindowController {
         } else {
             progressBar.isIndeterminate = true
             progressBar.startAnimation(nil)
-            titleLabel.stringValue = "Error en la operación"
-            speedLabel.stringValue = msg ?? "Error desconocido"
-            cancelButton.title = "Cerrar"
+            titleLabel.stringValue = String(localized: "Operation failed")
+            speedLabel.stringValue = msg ?? String(localized: "Unknown error")
+            cancelButton.title = String(localized: "Close")
         }
     }
 

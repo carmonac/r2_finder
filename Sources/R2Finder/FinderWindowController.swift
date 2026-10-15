@@ -172,8 +172,8 @@ final class FinderWindowController: NSWindowController, NSToolbarDelegate,
             // selectedSegment (0 or 1). No toggle confusion.
             let control = NSSegmentedControl(
                 images: [
-                    NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Atrás")!,
-                    NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Adelante")!,
+                    NSImage(systemSymbolName: "chevron.left", accessibilityDescription: String(localized: "Back"))!,
+                    NSImage(systemSymbolName: "chevron.right", accessibilityDescription: String(localized: "Forward"))!,
                 ],
                 trackingMode: .momentary,
                 target: self,
@@ -190,9 +190,9 @@ final class FinderWindowController: NSWindowController, NSToolbarDelegate,
             let control = NSSegmentedControl()
             control.segmentCount = 3
             control.trackingMode = .selectOne
-            control.setImage(NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Iconos"), forSegment: 0)
-            control.setImage(NSImage(systemSymbolName: "list.bullet", accessibilityDescription: "Lista"), forSegment: 1)
-            control.setImage(NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "Columnas"), forSegment: 2)
+            control.setImage(NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: String(localized: "Icons")), forSegment: 0)
+            control.setImage(NSImage(systemSymbolName: "list.bullet", accessibilityDescription: String(localized: "List")), forSegment: 1)
+            control.setImage(NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: String(localized: "Columns")), forSegment: 2)
             control.selectedSegment = 1
             control.target = self
             control.action = #selector(viewModeAction(_:))
@@ -215,16 +215,16 @@ final class FinderWindowController: NSWindowController, NSToolbarDelegate,
 
         case "NewFolder":
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Nueva carpeta")
-            item.label = "Nueva carpeta"
+            item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: String(localized: "New Folder"))
+            item.label = String(localized: "New Folder")
             item.target = self
             item.action = #selector(createNewFolder(_:))
             return item
 
         case "GoToFolder":
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.image = NSImage(systemSymbolName: "arrow.right.circle", accessibilityDescription: "Ir a carpeta")
-            item.label = "Ir a carpeta"
+            item.image = NSImage(systemSymbolName: "arrow.right.circle", accessibilityDescription: String(localized: "Go to Folder"))
+            item.label = String(localized: "Go to Folder")
             item.target = self
             item.action = #selector(goToFolderAction(_:))
             return item

@@ -19,9 +19,9 @@ public enum NetworkMountError: Error {
 
     public var message: String {
         switch self {
-        case .invalidURL(let s):        return "La dirección '\(s)' no es válida."
-        case .unsupportedScheme(let s): return "El protocolo '\(s)' no está soportado."
-        case .cancelled:                return "Conexión cancelada."
+        case .invalidURL(let s):        return String(format: String(localized: "The address '%@' isn't valid."), s)
+        case .unsupportedScheme(let s): return String(format: String(localized: "The protocol '%@' isn't supported."), s)
+        case .cancelled:                return String(localized: "Connection cancelled.")
         case .failed(_, let msg):       return msg
         }
     }
@@ -108,16 +108,16 @@ public enum NetworkMountService {
     private static func error(for status: Int32) -> NetworkMountError {
         switch status {
         case -128:  return .cancelled          // userCanceledErr
-        case -5045: return .failed(status: status, message: "La contraseña ha caducado y debe cambiarse.")
-        case -5046: return .failed(status: status, message: "La contraseña no cumple la política del servidor.")
-        case -5996: return .failed(status: status, message: "El servidor no admite ninguna versión del protocolo compatible.")
-        case -5997: return .failed(status: status, message: "El servidor no admite ningún método de autenticación compatible.")
+        case -5045: return .failed(status: status, message: String(localized: "The password has expired and must be changed."))
+        case -5046: return .failed(status: status, message: String(localized: "The password doesn't meet the server's policy."))
+        case -5996: return .failed(status: status, message: String(localized: "The server doesn't support any compatible protocol version."))
+        case -5997: return .failed(status: status, message: String(localized: "The server doesn't support any compatible authentication method."))
         case -5998, -6003:
-            return .failed(status: status, message: "El servidor no ofrece ningún recurso compartido.")
-        case -5999: return .failed(status: status, message: "La cuenta tiene restricciones de acceso.")
-        case -6004: return .failed(status: status, message: "El servidor no permite el acceso como invitado.")
-        case -6602: return .failed(status: status, message: "No se pudo montar el recurso compartido.")
-        case ..<0:  return .failed(status: status, message: "Error de conexión (\(status)).")
+            return .failed(status: status, message: String(localized: "The server doesn't offer any shared folders."))
+        case -5999: return .failed(status: status, message: String(localized: "The account has access restrictions."))
+        case -6004: return .failed(status: status, message: String(localized: "The server doesn't allow guest access."))
+        case -6602: return .failed(status: status, message: String(localized: "The shared folder couldn't be mounted."))
+        case ..<0:  return .failed(status: status, message: String(format: String(localized: "Connection error (%d)."), status))
         default:
             let text = String(cString: strerror(status))
             return .failed(status: status, message: "\(text) (\(status)).")

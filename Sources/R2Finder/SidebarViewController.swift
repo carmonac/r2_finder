@@ -27,7 +27,7 @@ private final class SidebarItem {
     let isHeader: Bool
     let networkHostname: String?  // non-nil for network hosts
     /// Non-nil for rows that run a command instead of navigating
-    /// ("Conectar al servidor…").
+    /// (String(localized: "Connect to Server…")).
     let action: Selector?
     var children: [SidebarItem] = []
 
@@ -93,7 +93,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
     // (nonisolated) needs to stop them.
     private nonisolated(unsafe) var browsers: [NetServiceBrowser] = []
     private var discoveredServices: [NetService] = []
-    private var networkHeader = SidebarItem(header: "RED")
+    private var networkHeader = SidebarItem(header: String(localized: "NETWORK"))
     /// Bumped on every rescan; probes from an older scan are ignored so a
     /// refresh can't be polluted by results the previous one is still yielding.
     private var discoveryGeneration = 0
@@ -167,21 +167,21 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         sections = []
 
         // ── Favourites ────────────────────────────────────────────────────
-        let favHeader = SidebarItem(header: "FAVORITOS")
+        let favHeader = SidebarItem(header: String(localized: "FAVORITES"))
         for special in VolumeService.specialDirs() {
             favHeader.children.append(SidebarItem(
                 name: special.name, path: special.path,
-                icon: iconForSpecialDir(special.name, defaultPath: special.path)))
+                icon: iconForSpecialDir(atPath: special.path)))
         }
         sections.append(favHeader)
 
         // ── Devices / Volumes ─────────────────────────────────────────────
-        let volHeader = SidebarItem(header: "DISPOSITIVOS")
+        let volHeader = SidebarItem(header: String(localized: "DEVICES"))
         populateVolumes(volHeader)
         sections.append(volHeader)
 
         // ── Network ───────────────────────────────────────────────────────
-        networkHeader = SidebarItem(header: "RED")
+        networkHeader = SidebarItem(header: String(localized: "NETWORK"))
         addConnectRow()
         sections.append(networkHeader)
         lastDiscoveryStart = Date()
@@ -205,20 +205,23 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         }
     }
 
+    /// Keyed by path relative to home (see VolumeService.specialDirPaths).
     private static let specialDirSymbols: [String: String] = [
-        "Inicio": "house",
-        "Escritorio": "desktopcomputer",
-        "Documentos": "doc",
-        "Descargas": "arrow.down.circle",
-        "Música": "music.note",
-        "Imágenes": "photo",
-        "Películas": "film",
-        "Aplicaciones": "square.grid.2x2",
+        "": "house",
+        "/Desktop": "desktopcomputer",
+        "/Documents": "doc",
+        "/Downloads": "arrow.down.circle",
+        "/Music": "music.note",
+        "/Pictures": "photo",
+        "/Movies": "film",
+        "/Applications": "square.grid.2x2",
     ]
 
-    private func iconForSpecialDir(_ name: String, defaultPath path: String) -> NSImage {
-        if let sym = Self.specialDirSymbols[name],
-           let img = NSImage(systemSymbolName: sym, accessibilityDescription: name) {
+    private func iconForSpecialDir(atPath path: String) -> NSImage {
+        let rel = String(path.dropFirst(NSHomeDirectory().count))
+        if let sym = Self.specialDirSymbols[rel],
+           let img = NSImage(systemSymbolName: sym,
+                             accessibilityDescription: FileManager.default.displayName(atPath: path)) {
             return img
         }
         return NSWorkspace.shared.icon(forFile: path)
@@ -282,12 +285,12 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         refreshNetwork(nil)
     }
 
-    /// The RED section always ends with a "Conectar al servidor…" row, so a
+    /// The RED section always ends with a String(localized: "Connect to Server…") row, so a
     /// host that discovery misses is still one click away.
     private func addConnectRow() {
         let icon = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: nil)
         networkHeader.children.append(SidebarItem(
-            actionName: "Conectar al servidor…", icon: icon,
+            actionName: String(localized: "Connect to Server…"), icon: icon,
             action: #selector(presentConnectToServer(_:))))
     }
 
@@ -457,7 +460,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         let icon = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
             ?? NSImage(named: NSImage.networkName)
         let item = SidebarItem(networkHost: name, hostname: hostname, icon: icon)
-        // Keep "Conectar al servidor…" last.
+        // Keep String(localized: "Connect to Server…") last.
         let insertAt = networkHeader.children.firstIndex { $0.action != nil }
             ?? networkHeader.children.count
         networkHeader.children.insert(item, at: insertAt)
@@ -497,7 +500,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
     /// NSWorkspace mount notification.
     private func connectToServer(address: String) {
         guard let url = NetworkMountService.normalizedURL(from: address) else {
-            presentMountError("La dirección '\(address)' no es válida.", address: address)
+            presentMountError(String(format: String(localized: "The address '%@' isn't valid."), address), address: address)
             return
         }
         let key = url.absoluteString
@@ -528,9 +531,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
     private func presentMountError(_ message: String, address: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "No se pudo conectar con \(address)"
+        alert.messageText = String(format: String(localized: "Couldn't connect to %@"), address)
         alert.informativeText = message
-        alert.addButton(withTitle: "Aceptar")
+        alert.addButton(withTitle: String(localized: "OK"))
         if let window = view.window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
@@ -703,18 +706,18 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         let item = row >= 0 ? outlineView.item(atRow: row) as? SidebarItem : nil
 
         if let hostname = item?.networkHostname {
-            let connect = menu.addItem(withTitle: "Conectar a \(hostname)",
+            let connect = menu.addItem(withTitle: String(format: String(localized: "Connect to %@"), hostname),
                                        action: #selector(connectToClickedHost(_:)),
                                        keyEquivalent: "")
             connect.target = self
             menu.addItem(.separator())
         }
 
-        let connectTo = menu.addItem(withTitle: "Conectar al servidor…",
+        let connectTo = menu.addItem(withTitle: String(localized: "Connect to Server…"),
                                      action: #selector(presentConnectToServer(_:)),
                                      keyEquivalent: "")
         connectTo.target = self
-        let refresh = menu.addItem(withTitle: "Actualizar red",
+        let refresh = menu.addItem(withTitle: String(localized: "Refresh Network"),
                                    action: #selector(refreshNetwork(_:)),
                                    keyEquivalent: "")
         refresh.target = self

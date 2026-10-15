@@ -114,7 +114,7 @@ extension FileViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         case "date":
             cell.textField?.stringValue = formattedDate(entry.mtime)
         case "kind":
-            cell.textField?.stringValue = entry.isDir ? "Carpeta"
+            cell.textField?.stringValue = entry.isDir ? String(localized: "Folder")
                 : (entry.isSymlink ? "Alias" : kind(forPath: entry.path))
         default:
             break
@@ -357,35 +357,35 @@ extension FileViewController: NSMenuDelegate, NSMenuItemValidation {
         }
 
         if let entry {
-            add("Abrir", #selector(openSelected(_:)))
+            add(String(localized: "Open"), #selector(openSelected(_:)))
             menu.addItem(.separator())
-            add("Copiar", #selector(copySelected(_:)))
-            add("Cortar", #selector(cutSelected(_:)))
+            add(String(localized: "Copy"), #selector(copySelected(_:)))
+            add(String(localized: "Cut"), #selector(cutSelected(_:)))
             menu.addItem(.separator())
-            add("Renombrar", #selector(renameSelected(_:)))
-            add("Obtener informacion", #selector(showInfoSelected(_:)))
+            add(String(localized: "Rename"), #selector(renameSelected(_:)))
+            add(String(localized: "Get Info"), #selector(showInfoSelected(_:)))
             menu.addItem(.separator())
             // Compress / Uncompress
             let ext = (entry.path as NSString).pathExtension.lowercased()
             if !entry.isDir, Self.extractableExtensions.contains(ext) {
-                add("Descomprimir", #selector(uncompressSelected(_:)))
+                add(String(localized: "Extract"), #selector(uncompressSelected(_:)))
             } else {
-                add("Comprimir", #selector(compressSelected(_:)))
+                add(String(localized: "Compress"), #selector(compressSelected(_:)))
             }
-            add("Dividir en partes", #selector(splitSelected(_:)))
+            add(String(localized: "Split into Parts"), #selector(splitSelected(_:)))
             menu.addItem(.separator())
-            add("Mover a la papelera", #selector(deleteSelected(_:)))
+            add(String(localized: "Move to Trash"), #selector(deleteSelected(_:)))
             menu.addItem(.separator())
         }
 
-        let paste = menu.addItem(withTitle: "Pegar", action: #selector(pasteHere(_:)), keyEquivalent: "")
+        let paste = menu.addItem(withTitle: String(localized: "Paste"), action: #selector(pasteHere(_:)), keyEquivalent: "")
         paste.target = self
         paste.keyEquivalentModifierMask = []
 
-        // AppKit hides this item and shows it in place of "Pegar" while Option
+        // AppKit hides this item and shows it in place of String(localized: "Paste") while Option
         // is held. alternate = true + matching keyEquivalent is the standard
         // mechanism.
-        let moveHere = menu.addItem(withTitle: "Trasladar aquí", action: #selector(moveHere(_:)), keyEquivalent: "")
+        let moveHere = menu.addItem(withTitle: String(localized: "Move Item Here"), action: #selector(moveHere(_:)), keyEquivalent: "")
         moveHere.target = self
         moveHere.isAlternate = true
         moveHere.keyEquivalentModifierMask = .option
@@ -393,8 +393,8 @@ extension FileViewController: NSMenuDelegate, NSMenuItemValidation {
         menu.delegate = self
 
         menu.addItem(.separator())
-        add("Nueva carpeta", #selector(newFolderAction(_:)))
-        add("Mostrar ocultos", #selector(toggleHidden(_:)))
+        add(String(localized: "New Folder"), #selector(newFolderAction(_:)))
+        add(String(localized: "Show Hidden Files"), #selector(toggleHidden(_:)))
         return menu
     }
 
@@ -404,7 +404,7 @@ extension FileViewController: NSMenuDelegate, NSMenuItemValidation {
             return !effectiveClipboardPaths().isEmpty
         }
         if item.action == #selector(toggleHidden(_:)) {
-            item.title = Self.showHidden ? "Ocultar archivos ocultos" : "Mostrar archivos ocultos"
+            item.title = Self.showHidden ? String(localized: "Hide Hidden Files") : String(localized: "Show Hidden Files")
         }
         return true
     }
@@ -497,7 +497,7 @@ extension FileViewController {
         let isDir = attrs[.type] as? FileAttributeType == .typeDirectory
 
         // Kind
-        let kindStr = isDir ? "Carpeta" : kind(forPath: filePath)
+        let kindStr = isDir ? String(localized: "Folder") : kind(forPath: filePath)
 
         // Size
         let sizeStr: String
@@ -514,7 +514,7 @@ extension FileViewController {
                     fileCount += 1
                 }
             }
-            sizeStr = "\(formattedSize(totalSize)) (\(fileCount) archivos)"
+            sizeStr = String(format: String(localized: "%@ (%ld files)"), formattedSize(totalSize), fileCount)
         } else {
             let bytes = (attrs[.size] as? UInt64) ?? 0
             sizeStr = "\(formattedSize(bytes)) (\(bytes) bytes)"
@@ -542,21 +542,12 @@ extension FileViewController {
         let alert = NSAlert()
         alert.messageText = fileName
         alert.icon = icon
-        alert.informativeText = """
-            Tipo: \(kindStr)
-
-            Tamaño: \(sizeStr)
-
-            Ubicación: \((filePath as NSString).deletingLastPathComponent)
-
-            Creado: \(createdStr)
-
-            Modificado: \(modifiedStr)
-
-            Permisos: \(permsStr)
-            """
+        alert.informativeText = String(
+            format: String(localized: "Kind: %@\n\nSize: %@\n\nWhere: %@\n\nCreated: %@\n\nModified: %@\n\nPermissions: %@"),
+            kindStr, sizeStr, (filePath as NSString).deletingLastPathComponent,
+            createdStr, modifiedStr, permsStr)
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Mostrar en Finder")
+        alert.addButton(withTitle: String(localized: "Show in Finder"))
 
         if alert.runModal() == .alertSecondButtonReturn {
             NSWorkspace.shared.activateFileViewerSelecting([fileURL])

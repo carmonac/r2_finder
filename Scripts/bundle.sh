@@ -7,7 +7,7 @@
 #   └── Contents/
 #       ├── Info.plist
 #       ├── MacOS/rs_2finder
-#       └── Resources/{AppIcon.icns, r2_finder.png, 7zz, rsync}
+#       └── Resources/{AppIcon.icns, r2_finder.png, 7zz, rsync, *.lproj}
 #
 # Usage:  Scripts/bundle.sh [version] [config]
 #   version  App version for Info.plist, tag-style "v1.4.3" accepted
@@ -44,6 +44,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>              <string>R2 Finder</string>
+  <!-- UI text is English in the code; es.lproj translates it. Any other
+       system language falls back to English. -->
+  <key>CFBundleDevelopmentRegion</key> <string>en</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>en</string>
+    <string>es</string>
+  </array>
   <key>CFBundleDisplayName</key>       <string>R2 Finder</string>
   <key>CFBundleIdentifier</key>        <string>com.example.r2finder</string>
   <key>CFBundleVersion</key>           <string>${VERSION}</string>
@@ -60,7 +68,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
        port-445 subnet scan) behind user consent. Without this key the
        system denies both silently and the RED section stays empty. -->
   <key>NSLocalNetworkUsageDescription</key>
-  <string>R2 Finder busca ordenadores y servidores de archivos en tu red local para mostrarlos en la barra lateral.</string>
+  <string>R2 Finder looks for computers and file servers on your local network to show them in the sidebar.</string>
   <!-- Bonjour service types the app is allowed to browse for. -->
   <key>NSBonjourServices</key>
   <array>
@@ -81,6 +89,9 @@ cp r2_finder.png "$APP/Contents/Resources/r2_finder.png"
 cp bin/7zz       "$APP/Contents/Resources/7zz"
 cp bin/rsync     "$APP/Contents/Resources/rsync"
 chmod 755 "$APP/Contents/Resources/7zz" "$APP/Contents/Resources/rsync"
+
+# 3b) Localizations (Localizable.strings + InfoPlist.strings per language)
+cp -R Localization/*.lproj "$APP/Contents/Resources/"
 
 # 4) Signature. SwiftPM leaves the binary ad-hoc "linker-signed", which does
 #    not seal Info.plist — so the privacy usage strings above are ignored and

@@ -33,16 +33,15 @@ enum ConnectToServerPanel {
         field.completes = true
         field.numberOfVisibleItems = maxRecents
         field.font = .systemFont(ofSize: 13)
-        field.placeholderString = "smb://servidor  o  192.168.1.10"
+        field.placeholderString = String(localized: "smb://server  or  192.168.1.10")
         field.addItems(withObjectValues: recents)
         field.stringValue = recents.first ?? "smb://"
 
         let alert = NSAlert()
-        alert.messageText = "Conectar al servidor"
-        alert.informativeText = "Escribe la dirección del servidor (smb://, afp://, nfs://). "
-            + "Sin protocolo se usa SMB."
-        alert.addButton(withTitle: "Conectar")
-        alert.addButton(withTitle: "Cancelar")
+        alert.messageText = String(localized: "Connect to Server")
+        alert.informativeText = String(localized: "Enter the server address (smb://, afp://, nfs://). Without a protocol, SMB is used.")
+        alert.addButton(withTitle: String(localized: "Connect"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         alert.accessoryView = field
 
         func finish(_ response: NSApplication.ModalResponse) {

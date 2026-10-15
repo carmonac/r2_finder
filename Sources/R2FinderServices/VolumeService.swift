@@ -26,27 +26,22 @@ public enum VolumeService {
         }
     }
 
-    /// Well-known user directories, only those that exist.
-    /// Display names stay in Spanish to match the rest of the UI.
+    /// Well-known user directories (relative to home), in sidebar order.
+    public static let specialDirPaths = ["", "/Desktop", "/Documents", "/Downloads",
+                                         "/Music", "/Pictures", "/Movies", "/Applications"]
+
+    /// Well-known user directories, only those that exist. Names come from
+    /// the system, so they follow the Mac's language ("Downloads"/"Descargas")
+    /// like Finder's sidebar.
     public static func specialDirs() -> [VolumeEntry] {
         let home = NSHomeDirectory()
-        let dirs: [(name: String, rel: String)] = [
-            ("Inicio", ""),
-            ("Escritorio", "/Desktop"),
-            ("Documentos", "/Documents"),
-            ("Descargas", "/Downloads"),
-            ("Música", "/Music"),
-            ("Imágenes", "/Pictures"),
-            ("Películas", "/Movies"),
-            ("Aplicaciones", "/Applications"),
-        ]
         var result: [VolumeEntry] = []
-        for d in dirs {
-            let full = home + d.rel
+        for rel in specialDirPaths {
+            let full = home + rel
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: full, isDirectory: &isDir),
                   isDir.boolValue else { continue }
-            result.append(VolumeEntry(name: d.name, path: full))
+            result.append(VolumeEntry(name: FileManager.default.displayName(atPath: full), path: full))
         }
         return result
     }

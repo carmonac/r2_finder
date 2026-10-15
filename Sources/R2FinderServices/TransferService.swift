@@ -192,7 +192,7 @@ public enum TransferService {
 
         guard child.exitCode == 0 else {
             let se = child.stderrText
-            return se.isEmpty ? "rsync salió con código \(child.exitCode)" : "rsync: \(se)"
+            return se.isEmpty ? String(format: String(localized: "rsync exited with code %d"), child.exitCode) : "rsync: \(se)"
         }
         return nil
     }

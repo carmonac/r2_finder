@@ -72,7 +72,8 @@ final class VolumeServiceTests: XCTestCase {
     func testSpecialDirsIncludesHome() {
         let dirs = VolumeService.specialDirs()
         XCTAssertGreaterThan(dirs.count, 0)
-        XCTAssertEqual(dirs.first?.name, "Inicio")
+        // System display name (the user's short name for home, like Finder).
+        XCTAssertEqual(dirs.first?.name, FileManager.default.displayName(atPath: NSHomeDirectory()))
         XCTAssertEqual(dirs.first?.path, NSHomeDirectory())
     }
 }

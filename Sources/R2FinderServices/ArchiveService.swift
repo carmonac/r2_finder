@@ -93,7 +93,7 @@ public enum ArchiveService {
 
         guard child.exitCode == 0 else {
             let se = child.stderrText
-            onDone(false, se.isEmpty ? "7zz salió con código \(child.exitCode)"
+            onDone(false, se.isEmpty ? String(format: String(localized: "7zz exited with code %d"), child.exitCode)
                                      : "7zz: \(se)")
             return
         }

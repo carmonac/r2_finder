@@ -178,10 +178,10 @@ final class FileViewController: NSViewController {
 
         // Columns
         let columnDefs: [(id: String, title: String, width: CGFloat)] = [
-            ("name", "Nombre", 340),
-            ("size", "Tamaño", 100),
-            ("date", "Fecha de modificación", 180),
-            ("kind", "Tipo", 120),
+            ("name", String(localized: "Name"), 340),
+            ("size", String(localized: "Size"), 100),
+            ("date", String(localized: "Date Modified"), 180),
+            ("kind", String(localized: "Kind"), 120),
         ]
         for (i, def) in columnDefs.enumerated() {
             let col = NSTableColumn(identifier: .init(def.id))
@@ -367,7 +367,7 @@ final class FileViewController: NSViewController {
 
         // On navigation, blank the view immediately so the user sees they've
         // moved. On in-place refresh (FSEvents), keep the existing entries on
-        // screen so the UI doesn't flicker through "Cargando…" every time
+        // screen so the UI doesn't flicker through String(localized: "Loading…") every time
         // rsync deletes a file.
         if pathChanged {
             // The old directory's expansion/selection means nothing here, and
@@ -592,13 +592,14 @@ final class FileViewController: NSViewController {
 
     func updateStatusBar() {
         if isLoading {
-            statusLabel.stringValue = "Cargando…"
+            statusLabel.stringValue = String(localized: "Loading…")
             return
         }
         let folders = entries.lazy.filter(\.isDir).count
         let files = entries.count - folders
-        statusLabel.stringValue = "\(folders) carpeta\(folders == 1 ? "" : "s"), "
-            + "\(files) archivo\(files == 1 ? "" : "s")"
+        let foldersStr = folders == 1 ? String(localized: "%ld folder") : String(localized: "%ld folders")
+        let filesStr = files == 1 ? String(localized: "%ld file") : String(localized: "%ld files")
+        statusLabel.stringValue = String(format: foldersStr, folders) + ", " + String(format: filesStr, files)
     }
 
     /// Column-view listing, off-main. Icons are fetched on the same background
@@ -715,13 +716,13 @@ final class FileViewController: NSViewController {
 
     func createNewFolder(inPath path: String) {
         let alert = NSAlert()
-        alert.messageText = "Nueva carpeta"
-        alert.informativeText = "Nombre de la nueva carpeta:"
-        alert.addButton(withTitle: "Crear")
-        alert.addButton(withTitle: "Cancelar")
+        alert.messageText = String(localized: "New Folder")
+        alert.informativeText = String(localized: "Name of the new folder:")
+        alert.addButton(withTitle: String(localized: "Create"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        input.placeholderString = "Carpeta sin titulo"
-        input.stringValue = "Carpeta sin titulo"
+        input.placeholderString = String(localized: "untitled folder")
+        input.stringValue = String(localized: "untitled folder")
         alert.accessoryView = input
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] resp in
@@ -861,11 +862,11 @@ final class FileViewController: NSViewController {
     func performTransfer(fromPaths paths: [String], toDir dstDir: String, isMove: Bool) {
         if FileService.checkCollision(sources: paths, dstDir: dstDir) {
             let alert = NSAlert()
-            alert.messageText = "Ya existe un elemento con ese nombre"
-            alert.informativeText = "Deseas reemplazar los archivos existentes?"
-            alert.addButton(withTitle: "Reemplazar")
-            alert.addButton(withTitle: "Cancelar")
-            alert.addButton(withTitle: "Mantener ambos")
+            alert.messageText = String(localized: "An item with the same name already exists")
+            alert.informativeText = String(localized: "Do you want to replace the existing items?")
+            alert.addButton(withTitle: String(localized: "Replace"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            alert.addButton(withTitle: String(localized: "Keep Both"))
             let resp = alert.runModal()
             if resp == .alertSecondButtonReturn { return }
             startTransfer(paths: paths, dstDir: dstDir,
@@ -906,10 +907,10 @@ final class FileViewController: NSViewController {
     private func startTransfer(paths: [String], dstDir: String,
                                conflict: TransferService.ConflictPolicy, isMove: Bool) {
         guard let rsync = Self.rsyncPath else {
-            showErrorMessage("No se encontró el binario rsync")
+            showErrorMessage(String(localized: "The rsync binary was not found"))
             return
         }
-        let pwc = makeProgressWindow(title: isMove ? "Moviendo" : "Copiando", destination: dstDir)
+        let pwc = makeProgressWindow(title: isMove ? String(localized: "Moving") : String(localized: "Copying"), destination: dstDir)
         let (onProgress, onDone) = progressHandlers(pwc)
         if isMove {
             TransferService.move(rsyncPath: rsync, sources: paths, dstDir: dstDir,
@@ -951,10 +952,10 @@ final class FileViewController: NSViewController {
     private func confirmTrashDelete(_ paths: [String]) {
         let alert = NSAlert()
         alert.messageText = paths.count == 1
-            ? "Mover \"\((paths[0] as NSString).lastPathComponent)\" a la papelera?"
-            : "Mover \(paths.count) elementos a la papelera?"
-        alert.addButton(withTitle: "Mover a la papelera")
-        alert.addButton(withTitle: "Cancelar")
+            ? String(format: String(localized: "Move \"%@\" to the Trash?"), (paths[0] as NSString).lastPathComponent)
+            : String(format: String(localized: "Move %ld items to the Trash?"), paths.count)
+        alert.addButton(withTitle: String(localized: "Move to Trash"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .warning
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] resp in
@@ -976,13 +977,13 @@ final class FileViewController: NSViewController {
     private func confirmPermanentDelete(_ paths: [String]) {
         let alert = NSAlert()
         alert.messageText = paths.count == 1
-            ? "\"\((paths[0] as NSString).lastPathComponent)\" se eliminará permanentemente."
-            : "\(paths.count) elementos se eliminarán permanentemente."
-        alert.informativeText = "Este volumen no tiene papelera. Esta acción no se puede deshacer."
-        alert.addButton(withTitle: "Eliminar")
-        alert.addButton(withTitle: "Cancelar")
+            ? String(format: String(localized: "\"%@\" will be deleted permanently."), (paths[0] as NSString).lastPathComponent)
+            : String(format: String(localized: "%ld items will be deleted permanently."), paths.count)
+        alert.informativeText = String(localized: "This volume has no Trash. This action can't be undone.")
+        alert.addButton(withTitle: String(localized: "Delete"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .critical
-        // Make the "Eliminar" button visually destructive
+        // Make the String(localized: "Delete") button visually destructive
         alert.buttons.first?.hasDestructiveAction = true
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] resp in
@@ -1026,11 +1027,11 @@ final class FileViewController: NSViewController {
         let archive = (currentPath as NSString).appendingPathComponent(baseName + ".7z")
 
         guard let sevenzz = Self.sevenzzPath else {
-            showErrorMessage("No se encontró el binario 7zz")
+            showErrorMessage(String(localized: "The 7zz binary was not found"))
             return
         }
 
-        let pwc = makeProgressWindow(title: "Comprimiendo", destination: currentPath)
+        let pwc = makeProgressWindow(title: String(localized: "Compressing"), destination: currentPath)
         let (onProgress, onDone) = progressHandlers(pwc)
         ArchiveService.compress(sevenzzPath: sevenzz, sources: paths, archivePath: archive,
                                 onProgress: onProgress, onDone: onDone)
@@ -1041,21 +1042,21 @@ final class FileViewController: NSViewController {
         guard !paths.isEmpty else { return }
 
         guard let sevenzz = Self.sevenzzPath else {
-            showErrorMessage("No se encontró el binario 7zz")
+            showErrorMessage(String(localized: "The 7zz binary was not found"))
             return
         }
 
         // Input panel asking for the part size in MB
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        field.placeholderString = "Ej: 100"
+        field.placeholderString = String(localized: "e.g. 100")
         field.font = .systemFont(ofSize: 13)
         field.stringValue = "100"
 
         let alert = NSAlert()
-        alert.messageText = "Dividir en partes"
-        alert.informativeText = "Tamaño de cada parte en MB:"
-        alert.addButton(withTitle: "Dividir")
-        alert.addButton(withTitle: "Cancelar")
+        alert.messageText = String(localized: "Split into Parts")
+        alert.informativeText = String(localized: "Size of each part in MB:")
+        alert.addButton(withTitle: String(localized: "Split"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         alert.accessoryView = field
 
         guard let window = view.window else { return }
@@ -1064,7 +1065,7 @@ final class FileViewController: NSViewController {
 
             let input = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let sizeMB = Int(input), sizeMB > 0 else {
-                showErrorMessage("El tamaño debe ser un número mayor que 0")
+                showErrorMessage(String(localized: "The size must be a number greater than 0"))
                 return
             }
 
@@ -1076,7 +1077,7 @@ final class FileViewController: NSViewController {
             let baseName = ((paths[0] as NSString).lastPathComponent as NSString).deletingPathExtension
             let archive = (currentPath as NSString).appendingPathComponent(baseName + ".7z")
 
-            let pwc = makeProgressWindow(title: "Dividiendo", destination: currentPath)
+            let pwc = makeProgressWindow(title: String(localized: "Splitting"), destination: currentPath)
             let (onProgress, onDone) = progressHandlers(pwc)
             ArchiveService.compress(sevenzzPath: sevenzz, sources: paths, archivePath: archive,
                                     volumeSizeMB: UInt32(sizeMB), storeOnly: storeOnly,
@@ -1093,7 +1094,7 @@ final class FileViewController: NSViewController {
         guard let archivePath = selectedPaths().first else { return }
 
         guard let sevenzz = Self.sevenzzPath else {
-            showErrorMessage("No se encontró el binario 7zz")
+            showErrorMessage(String(localized: "The 7zz binary was not found"))
             return
         }
 
@@ -1106,7 +1107,7 @@ final class FileViewController: NSViewController {
         }
         let dstDir = (currentPath as NSString).appendingPathComponent(baseName)
 
-        let pwc = makeProgressWindow(title: "Descomprimiendo", destination: currentPath)
+        let pwc = makeProgressWindow(title: String(localized: "Extracting"), destination: currentPath)
         let (onProgress, onDone) = progressHandlers(pwc)
         ArchiveService.uncompress(sevenzzPath: sevenzz, archivePath: archivePath, dstDir: dstDir,
                                   onProgress: onProgress, onDone: onDone)
@@ -1149,7 +1150,7 @@ final class FileViewController: NSViewController {
     func showErrorMessage(_ msg: String?) {
         let alert = NSAlert()
         alert.messageText = "Error"
-        alert.informativeText = msg ?? "Operacion fallida"
+        alert.informativeText = msg ?? String(localized: "Operation failed")
         alert.alertStyle = .critical
         if let window = view.window {
             alert.beginSheetModal(for: window)
@@ -1173,7 +1174,7 @@ final class FileViewController: NSViewController {
         return df.string(from: Date(timeIntervalSince1970: TimeInterval(unix)))
     }
 
-    /// Localized "Tipo" column text.
+    /// Localized String(localized: "Kind") column text.
     ///
     /// Resolved from the filename extension, cached, because the previous
     /// `resourceValues(forKeys: [.contentTypeKey])` hit the filesystem once per
@@ -1195,7 +1196,7 @@ final class FileViewController: NSViewController {
             return description
         }
         let upper = ext.uppercased()
-        return upper.isEmpty ? "Archivo" : "Archivo \(upper)"
+        return upper.isEmpty ? String(localized: "File") : String(format: String(localized: "%@ File"), upper)
     }
 
     private static var kindCache: [String: String] = [:]

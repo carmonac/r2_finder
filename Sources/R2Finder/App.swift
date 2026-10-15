@@ -63,73 +63,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ── R2 Finder ─────────────────────────────────────────────────────────
         let appMenu = submenu("R2 Finder")
-        appMenu.addItem(withTitle: "Acerca de R2 Finder",
+        appMenu.addItem(withTitle: String(localized: "About R2 Finder"),
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
 
-        let servicesMenu = NSMenu(title: "Servicios")
-        appMenu.addItem(withTitle: "Servicios", action: nil, keyEquivalent: "").submenu = servicesMenu
+        let servicesMenu = NSMenu(title: String(localized: "Services"))
+        appMenu.addItem(withTitle: String(localized: "Services"), action: nil, keyEquivalent: "").submenu = servicesMenu
         NSApp.servicesMenu = servicesMenu
 
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Ocultar R2 Finder",
+        appMenu.addItem(withTitle: String(localized: "Hide R2 Finder"),
                         action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        let hideOthers = appMenu.addItem(withTitle: "Ocultar otros",
+        let hideOthers = appMenu.addItem(withTitle: String(localized: "Hide Others"),
                                          action: #selector(NSApplication.hideOtherApplications(_:)),
                                          keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
-        appMenu.addItem(withTitle: "Mostrar todo",
+        appMenu.addItem(withTitle: String(localized: "Show All"),
                         action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Salir de R2 Finder",
+        appMenu.addItem(withTitle: String(localized: "Quit R2 Finder"),
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         // ── Archivo ───────────────────────────────────────────────────────────
-        let fileMenu = submenu("Archivo")
-        let newWin = fileMenu.addItem(withTitle: "Nueva ventana",
+        let fileMenu = submenu(String(localized: "File"))
+        let newWin = fileMenu.addItem(withTitle: String(localized: "New Window"),
                                       action: #selector(openNewWindow), keyEquivalent: "n")
         newWin.target = self
 
         // target = nil → first-responder chain reaches FinderWindowController
-        fileMenu.addItem(withTitle: "Nueva carpeta",
+        fileMenu.addItem(withTitle: String(localized: "New Folder"),
                          action: #selector(FinderWindowController.createNewFolder(_:)),
                          keyEquivalent: "N") // Cmd+Shift+N
 
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: "Ir a la carpeta…",
+        fileMenu.addItem(withTitle: String(localized: "Go to Folder…"),
                          action: #selector(FinderWindowController.goToFolderAction(_:)),
                          keyEquivalent: "G") // Cmd+Shift+G
-        fileMenu.addItem(withTitle: "Conectar al servidor…",
+        fileMenu.addItem(withTitle: String(localized: "Connect to Server…"),
                          action: #selector(FinderWindowController.connectToServerAction(_:)),
                          keyEquivalent: "k") // Cmd+K, as in Finder
 
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: "Cerrar ventana",
+        fileMenu.addItem(withTitle: String(localized: "Close Window"),
                          action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
 
         // ── Edición ───────────────────────────────────────────────────────────
-        let editMenu = submenu("Edición")
+        let editMenu = submenu(String(localized: "Edit"))
         // target = nil → first-responder chain reaches FileViewController
-        editMenu.addItem(withTitle: "Copiar",
+        editMenu.addItem(withTitle: String(localized: "Copy"),
                          action: #selector(FileViewController.copySelected(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Cortar",
+        editMenu.addItem(withTitle: String(localized: "Cut"),
                          action: #selector(FileViewController.cutSelected(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Pegar",
+        editMenu.addItem(withTitle: String(localized: "Paste"),
                          action: #selector(FileViewController.pasteHere(_:)), keyEquivalent: "v")
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Seleccionar todo",
+        editMenu.addItem(withTitle: String(localized: "Select All"),
                          action: NSSelectorFromString("selectAll:"), keyEquivalent: "a")
 
         // ── Ventana ───────────────────────────────────────────────────────────
-        let windowMenu = submenu("Ventana")
+        let windowMenu = submenu(String(localized: "Window"))
         NSApp.windowsMenu = windowMenu
-        windowMenu.addItem(withTitle: "Minimizar",
+        windowMenu.addItem(withTitle: String(localized: "Minimize"),
                            action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Zoom",
                            action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowMenu.addItem(.separator())
-        windowMenu.addItem(withTitle: "Traer todo al frente",
+        windowMenu.addItem(withTitle: String(localized: "Bring All to Front"),
                            action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
     }
 
@@ -140,12 +140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu(title: "")
 
-        let newWin = NSMenuItem(title: "Nueva ventana",
+        let newWin = NSMenuItem(title: String(localized: "New Window"),
                                 action: #selector(openNewWindow), keyEquivalent: "")
         newWin.target = self
         menu.addItem(newWin)
 
-        let goTo = NSMenuItem(title: "Ir a la carpeta…",
+        let goTo = NSMenuItem(title: String(localized: "Go to Folder…"),
                               action: #selector(goToFolder), keyEquivalent: "")
         goTo.target = self
         menu.addItem(goTo)
