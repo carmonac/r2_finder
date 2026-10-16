@@ -27,8 +27,10 @@ private final class SidebarItem {
     let isHeader: Bool
     let networkHostname: String?  // non-nil for network hosts
     /// Non-nil for rows that run a command instead of navigating
-    /// (String(localized: "Connect to Server…")).
+    /// ("Connect to Server…").
     let action: Selector?
+    /// Mounted volume that can be ejected (shows the ⏏ button).
+    let isEjectable: Bool
     var children: [SidebarItem] = []
 
     init(header title: String) {
@@ -38,15 +40,17 @@ private final class SidebarItem {
         isHeader = true
         networkHostname = nil
         action = nil
+        isEjectable = false
     }
 
-    init(name: String, path: String, icon: NSImage?) {
+    init(name: String, path: String, icon: NSImage?, isEjectable: Bool = false) {
         self.name = name
         self.path = path
         self.icon = icon
         isHeader = false
         networkHostname = nil
         action = nil
+        self.isEjectable = isEjectable
     }
 
     init(networkHost name: String, hostname: String, icon: NSImage?) {
@@ -56,6 +60,7 @@ private final class SidebarItem {
         isHeader = false
         networkHostname = hostname
         action = nil
+        isEjectable = false
     }
 
     init(actionName name: String, icon: NSImage?, action: Selector) {
@@ -65,7 +70,106 @@ private final class SidebarItem {
         isHeader = false
         networkHostname = nil
         self.action = action
+        isEjectable = false
     }
+}
+
+/// User-facing reason an eject failed. The common case — something still
+/// has a file open on the volume — comes back as a bare "OSStatus -47"
+/// (fBsyErr) or EBUSY, which says nothing to the user.
+private func ejectFailureMessage(_ error: Error) -> String {
+    let ns = error as NSError
+    let busy = (ns.domain == NSOSStatusErrorDomain && ns.code == -47)
+        || (ns.domain == NSPOSIXErrorDomain && ns.code == Int(EBUSY))
+    return busy
+        ? String(localized: "The volume is in use. Close the files or apps that are using it and try again.")
+        : ns.localizedDescription
+}
+
+/// Sidebar row: icon + name, plus an eject button for ejectable volumes.
+/// The name runs up to the button when it's shown, to the edge otherwise.
+private final class SidebarItemCell: NSTableCellView {
+    let ejectButton: NSButton
+    /// Replaces the eject button while an eject is in flight — macOS can wait
+    /// several seconds on other processes before unmounting.
+    private let ejectSpinner = NSProgressIndicator()
+    private var textToButton: NSLayoutConstraint!
+    private var textToEdge: NSLayoutConstraint!
+
+    var showsEject = false { didSet { updateEjectArea() } }
+    var isEjecting = false { didSet { updateEjectArea() } }
+
+    private func updateEjectArea() {
+        ejectButton.isHidden = !showsEject || isEjecting
+        ejectSpinner.isHidden = !showsEject || !isEjecting
+        if showsEject && isEjecting {
+            ejectSpinner.startAnimation(nil)
+        } else {
+            ejectSpinner.stopAnimation(nil)
+        }
+        textToButton.isActive = showsEject
+        textToEdge.isActive = !showsEject
+    }
+
+    init(identifier: NSUserInterfaceItemIdentifier, target: AnyObject, ejectAction: Selector) {
+        let image = NSImage(systemSymbolName: "eject.fill",
+                            accessibilityDescription: String(localized: "Eject")) ?? NSImage()
+        ejectButton = NSButton(image: image, target: target, action: ejectAction)
+        super.init(frame: .zero)
+        self.identifier = identifier
+
+        let iv = NSImageView(frame: .zero)
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.imageScaling = .scaleProportionallyDown
+        addSubview(iv)
+        imageView = iv
+
+        let tf = NSTextField(labelWithString: "")
+        tf.font = .systemFont(ofSize: 13)
+        tf.translatesAutoresizingMaskIntoConstraints = false
+        tf.lineBreakMode = .byTruncatingTail
+        tf.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(tf)
+        textField = tf
+
+        ejectButton.isBordered = false
+        ejectButton.imageScaling = .scaleProportionallyDown
+        ejectButton.contentTintColor = .secondaryLabelColor
+        ejectButton.toolTip = String(localized: "Eject")
+        ejectButton.translatesAutoresizingMaskIntoConstraints = false
+        ejectButton.isHidden = true
+        addSubview(ejectButton)
+
+        ejectSpinner.style = .spinning
+        ejectSpinner.controlSize = .small
+        ejectSpinner.isDisplayedWhenStopped = false
+        ejectSpinner.translatesAutoresizingMaskIntoConstraints = false
+        ejectSpinner.isHidden = true
+        addSubview(ejectSpinner)
+
+        textToButton = tf.trailingAnchor.constraint(equalTo: ejectButton.leadingAnchor, constant: -4)
+        textToEdge = tf.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4)
+        NSLayoutConstraint.activate([
+            iv.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            iv.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iv.widthAnchor.constraint(equalToConstant: 16),
+            iv.heightAnchor.constraint(equalToConstant: 16),
+            tf.leadingAnchor.constraint(equalTo: iv.trailingAnchor, constant: 6),
+            tf.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ejectButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            ejectButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ejectButton.widthAnchor.constraint(equalToConstant: 16),
+            ejectButton.heightAnchor.constraint(equalToConstant: 16),
+            ejectSpinner.centerXAnchor.constraint(equalTo: ejectButton.centerXAnchor),
+            ejectSpinner.centerYAnchor.constraint(equalTo: ejectButton.centerYAnchor),
+            ejectSpinner.widthAnchor.constraint(equalToConstant: 16),
+            ejectSpinner.heightAnchor.constraint(equalToConstant: 16),
+            textToEdge,
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,6 +204,24 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
     /// Addresses with a mount request in flight, so a second click (or a
     /// re-selection of the same row) doesn't stack up dialogs.
     private var mountsInFlight: Set<String> = []
+    /// Volume paths with an eject in flight (ignore repeated clicks).
+    private var ejectsInFlight: Set<String> = []
+
+    @objc private func sidebarDidResize(_ note: Notification) {
+        fitColumnToSidebar()
+    }
+
+    private func fitColumnToSidebar() {
+        guard let col = outlineView.tableColumns.first else { return }
+        // The source-list style insets the column on both sides; the leading
+        // inset is where column 0 starts, and the trailing one mirrors it.
+        // Without subtracting them the row overhangs the sidebar and the
+        // eject buttons get clipped.
+        let inset = outlineView.rect(ofColumn: 0).minX
+        let width = scrollView.contentView.bounds.width - 2 * inset
+            - outlineView.intercellSpacing.width
+        if width > 0, col.width != width { col.width = width }
+    }
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
@@ -118,6 +240,10 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         // Drag destination – accept file drops onto sidebar items
         outlineView.registerForDraggedTypes([.fileURL])
 
+        // The only column must span the sidebar. A fresh NSTableColumn is
+        // 100 pt wide and nothing grows it, so names like "Documentos" were
+        // truncated with plenty of room left. fitColumnToSidebar() keeps it
+        // matched to the visible width on every resize (see below).
         let col = NSTableColumn(identifier: .init("main"))
         col.resizingMask = .autoresizingMask
         outlineView.addTableColumn(col)
@@ -129,6 +255,14 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         scrollView.documentView = outlineView
 
         view.addSubview(scrollView)
+
+        // This view uses autoresizing masks, so dragging the split divider
+        // never triggers viewDidLayout — follow the clip view's frame instead.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(sidebarDidResize(_:)),
+            name: NSView.frameDidChangeNotification, object: scrollView.contentView)
+        fitColumnToSidebar()
 
         buildSections()
         outlineView.reloadData()
@@ -201,7 +335,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
             if vol.path == "/Volumes/Macintosh HD" { continue }
             let icon = NSImage(systemSymbolName: "externaldrive", accessibilityDescription: nil)
                 ?? NSImage(named: NSImage.multipleDocumentsName)
-            header.children.append(SidebarItem(name: vol.name, path: vol.path, icon: icon))
+            header.children.append(SidebarItem(name: vol.name, path: vol.path, icon: icon,
+                                               isEjectable: vol.isEjectable))
         }
     }
 
@@ -285,12 +420,13 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         refreshNetwork(nil)
     }
 
-    /// The RED section always ends with a String(localized: "Connect to Server…") row, so a
+    /// The RED section always ends with a "Connect to Server" row, so a
     /// host that discovery misses is still one click away.
     private func addConnectRow() {
         let icon = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: nil)
         networkHeader.children.append(SidebarItem(
-            actionName: String(localized: "Connect to Server…"), icon: icon,
+            // No "…" here: in the sidebar it reads as truncated text.
+            actionName: String(localized: "Connect to Server"), icon: icon,
             action: #selector(presentConnectToServer(_:))))
     }
 
@@ -460,7 +596,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         let icon = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
             ?? NSImage(named: NSImage.networkName)
         let item = SidebarItem(networkHost: name, hostname: hostname, icon: icon)
-        // Keep String(localized: "Connect to Server…") last.
+        // Keep "Connect to Server…" last.
         let insertAt = networkHeader.children.firstIndex { $0.action != nil }
             ?? networkHeader.children.count
         networkHeader.children.insert(item, at: insertAt)
@@ -639,35 +775,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
         }
 
         let identifier = NSUserInterfaceItemIdentifier("ItemCell")
-        let cell = ov.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
-            ?? {
-                let cell = NSTableCellView(frame: .zero)
-                cell.identifier = identifier
-
-                let iv = NSImageView(frame: .zero)
-                iv.translatesAutoresizingMaskIntoConstraints = false
-                iv.imageScaling = .scaleProportionallyDown
-                cell.addSubview(iv)
-                cell.imageView = iv
-
-                let tf = NSTextField(labelWithString: "")
-                tf.font = .systemFont(ofSize: 13)
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                tf.lineBreakMode = .byTruncatingTail
-                cell.addSubview(tf)
-                cell.textField = tf
-
-                NSLayoutConstraint.activate([
-                    iv.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                    iv.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                    iv.widthAnchor.constraint(equalToConstant: 16),
-                    iv.heightAnchor.constraint(equalToConstant: 16),
-                    tf.leadingAnchor.constraint(equalTo: iv.trailingAnchor, constant: 6),
-                    tf.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    tf.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                ])
-                return cell
-            }()
+        let cell = ov.makeView(withIdentifier: identifier, owner: self) as? SidebarItemCell
+            ?? SidebarItemCell(identifier: identifier, target: self,
+                               ejectAction: #selector(ejectButtonClicked(_:)))
+        cell.showsEject = si.isEjectable
+        cell.isEjecting = si.path.map(ejectsInFlight.contains) ?? false
         cell.textField?.stringValue = si.name
         let icon = si.icon ?? NSWorkspace.shared.icon(forFile: si.path ?? "/")
         icon.size = NSSize(width: 16, height: 16)
@@ -713,6 +825,14 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
             menu.addItem(.separator())
         }
 
+        if let item, item.isEjectable {
+            let eject = menu.addItem(withTitle: String(format: String(localized: "Eject \"%@\""), item.name),
+                                     action: #selector(ejectClickedVolume(_:)),
+                                     keyEquivalent: "")
+            eject.target = self
+            menu.addItem(.separator())
+        }
+
         let connectTo = menu.addItem(withTitle: String(localized: "Connect to Server…"),
                                      action: #selector(presentConnectToServer(_:)),
                                      keyEquivalent: "")
@@ -721,6 +841,69 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
                                    action: #selector(refreshNetwork(_:)),
                                    keyEquivalent: "")
         refresh.target = self
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // MARK: – Eject
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @objc private func ejectButtonClicked(_ sender: NSButton) {
+        let row = outlineView.row(for: sender)
+        guard row >= 0, let item = outlineView.item(atRow: row) as? SidebarItem else { return }
+        eject(item)
+    }
+
+    @objc private func ejectClickedVolume(_ sender: Any?) {
+        let row = outlineView.clickedRow
+        guard row >= 0, let item = outlineView.item(atRow: row) as? SidebarItem else { return }
+        eject(item)
+    }
+
+    /// Unmount + eject off the main thread — a network share or a busy disk
+    /// can take seconds to answer. The row disappears via the workspace
+    /// didUnmount notification (volumesChanged), not here.
+    private func eject(_ item: SidebarItem) {
+        guard item.isEjectable, let path = item.path,
+              ejectsInFlight.insert(path).inserted else { return }
+        let name = item.name
+        reloadRow(forPath: path)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var failure: String?
+            do {
+                try NSWorkspace.shared.unmountAndEjectDevice(at: URL(fileURLWithPath: path))
+            } catch {
+                failure = ejectFailureMessage(error)
+            }
+            Task { @MainActor [self, failure] in
+                guard let self else { return }
+                ejectsInFlight.remove(path)
+                reloadRow(forPath: path) // back to ⏏ if the eject failed
+                if let failure { presentEjectError(failure, volumeName: name) }
+            }
+        }
+    }
+
+    private func reloadRow(forPath path: String) {
+        for row in 0..<outlineView.numberOfRows {
+            if let item = outlineView.item(atRow: row) as? SidebarItem, item.path == path {
+                outlineView.reloadData(forRowIndexes: IndexSet(integer: row),
+                                       columnIndexes: IndexSet(integer: 0))
+                return
+            }
+        }
+    }
+
+    private func presentEjectError(_ message: String, volumeName: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(format: String(localized: "Couldn't eject \"%@\""), volumeName)
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "OK"))
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
     }
 
     @objc private func connectToClickedHost(_ sender: Any?) {

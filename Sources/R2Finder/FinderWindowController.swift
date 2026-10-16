@@ -38,6 +38,21 @@ final class FinderWindowController: NSWindowController, NSToolbarDelegate,
         setupToolbar()
         setupContent()
         pushPath(path, updateContent: false)
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(volumeDidUnmount(_:)),
+            name: NSWorkspace.didUnmountNotification, object: nil)
+    }
+
+    /// A volume this window is showing went away (ejected here, in Finder or
+    /// unplugged): fall back to home instead of a dead path.
+    @objc private func volumeDidUnmount(_ note: Notification) {
+        guard let url = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
+        let volume = url.path
+        let current = fileVC.currentPath
+        if current == volume || current.hasPrefix(volume + "/") {
+            navigateToPath(NSHomeDirectory())
+        }
     }
 
     @available(*, unavailable)

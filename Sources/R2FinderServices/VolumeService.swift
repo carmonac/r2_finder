@@ -6,6 +6,9 @@ import Foundation
 public struct VolumeEntry {
     public var name: String
     public var path: String
+    /// Can be ejected from the sidebar: removable media, disk images,
+    /// external drives and network shares.
+    public var isEjectable = false
 }
 
 public enum VolumeService {
@@ -14,15 +17,24 @@ public enum VolumeService {
     /// /Volumes/ so the boot volume ("/") and hidden system volumes don't
     /// clutter the sidebar (which adds "Macintosh HD" → "/" itself).
     public static func volumes() -> [VolumeEntry] {
+        let keys: Set<URLResourceKey> = [.volumeNameKey, .volumeIsEjectableKey,
+                                         .volumeIsRemovableKey, .volumeIsInternalKey,
+                                         .volumeIsLocalKey]
         let urls = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: [.volumeNameKey],
+            includingResourceValuesForKeys: Array(keys),
             options: [.skipHiddenVolumes]) ?? []
         return urls.compactMap { url in
             let path = url.path
             guard path.hasPrefix("/Volumes/") else { return nil }
-            let name = (try? url.resourceValues(forKeys: [.volumeNameKey]))?.volumeName
-                ?? url.lastPathComponent
-            return VolumeEntry(name: name, path: path)
+            let values = try? url.resourceValues(forKeys: keys)
+            let name = values?.volumeName ?? url.lastPathComponent
+            // Same rule as Finder's eject button: anything that isn't a fixed
+            // internal disk. Network shares report isLocal == false.
+            let ejectable = values?.volumeIsEjectable == true
+                || values?.volumeIsRemovable == true
+                || values?.volumeIsInternal == false
+                || values?.volumeIsLocal == false
+            return VolumeEntry(name: name, path: path, isEjectable: ejectable)
         }
     }
 
