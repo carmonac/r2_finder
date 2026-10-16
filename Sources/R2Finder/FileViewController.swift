@@ -617,9 +617,9 @@ final class FileViewController: NSViewController {
         }
         let folders = entries.lazy.filter(\.isDir).count
         let files = entries.count - folders
-        let foldersStr = folders == 1 ? String(localized: "%ld folder") : String(localized: "%ld folders")
-        let filesStr = files == 1 ? String(localized: "%ld file") : String(localized: "%ld files")
-        statusLabel.stringValue = String(format: foldersStr, folders) + ", " + String(format: filesStr, files)
+        // Plural forms come from Localizable.stringsdict (Ukrainian has three).
+        statusLabel.stringValue = String(localized: "\(folders) folders") + ", "
+            + String(localized: "\(files) files")
     }
 
     /// Column-view listing, off-main. Icons are fetched on the same background
@@ -973,7 +973,7 @@ final class FileViewController: NSViewController {
         let alert = NSAlert()
         alert.messageText = paths.count == 1
             ? String(format: String(localized: "Move \"%@\" to the Trash?"), (paths[0] as NSString).lastPathComponent)
-            : String(format: String(localized: "Move %ld items to the Trash?"), paths.count)
+            : String(localized: "Move \(paths.count) items to the Trash?")
         alert.addButton(withTitle: String(localized: "Move to Trash"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .warning
@@ -998,7 +998,7 @@ final class FileViewController: NSViewController {
         let alert = NSAlert()
         alert.messageText = paths.count == 1
             ? String(format: String(localized: "\"%@\" will be deleted permanently."), (paths[0] as NSString).lastPathComponent)
-            : String(format: String(localized: "%ld items will be deleted permanently."), paths.count)
+            : String(localized: "\(paths.count) items will be deleted permanently.")
         alert.informativeText = String(localized: "This volume has no Trash. This action can't be undone.")
         alert.addButton(withTitle: String(localized: "Delete"))
         alert.addButton(withTitle: String(localized: "Cancel"))

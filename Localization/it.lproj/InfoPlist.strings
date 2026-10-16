@@ -1,0 +1,2 @@
+/* Italian Info.plist strings (base values in Scripts/bundle.sh are English). */
+"NSLocalNetworkUsageDescription" = "R2 Finder cerca computer e file server nella rete locale per mostrarli nella barra laterale.";

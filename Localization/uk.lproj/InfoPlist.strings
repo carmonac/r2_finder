@@ -1,0 +1,2 @@
+/* Ukrainian Info.plist strings (base values in Scripts/bundle.sh are English). */
+"NSLocalNetworkUsageDescription" = "R2 Finder шукає комп’ютери та файлові сервери у вашій локальній мережі, щоб показати їх на бічній панелі.";

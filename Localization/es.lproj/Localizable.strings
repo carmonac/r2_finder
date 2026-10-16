@@ -37,7 +37,6 @@
 "Move Item Here" = "Trasladar aquí";
 "Show Hidden Files" = "Mostrar archivos ocultos";
 "Hide Hidden Files" = "Ocultar archivos ocultos";
-"%@ (%ld files)" = "%@ (%ld archivos)";
 "Kind: %@\n\nSize: %@\n\nWhere: %@\n\nCreated: %@\n\nModified: %@\n\nPermissions: %@" = "Tipo: %@\n\nTamaño: %@\n\nUbicación: %@\n\nCreado: %@\n\nModificado: %@\n\nPermisos: %@";
 "Show in Finder" = "Mostrar en Finder";
 "Name" = "Nombre";
@@ -45,10 +44,6 @@
 "Date Modified" = "Fecha de modificación";
 "Kind" = "Tipo";
 "Loading…" = "Cargando…";
-"%ld folder" = "%ld carpeta";
-"%ld folders" = "%ld carpetas";
-"%ld file" = "%ld archivo";
-"%ld files" = "%ld archivos";
 "Name of the new folder:" = "Nombre de la nueva carpeta:";
 "Create" = "Crear";
 "untitled folder" = "carpeta sin título";
@@ -60,9 +55,7 @@
 "Moving" = "Moviendo";
 "Copying" = "Copiando";
 "Move \"%@\" to the Trash?" = "¿Mover «%@» a la papelera?";
-"Move %ld items to the Trash?" = "¿Mover %ld elementos a la papelera?";
 "\"%@\" will be deleted permanently." = "«%@» se eliminará permanentemente.";
-"%ld items will be deleted permanently." = "%ld elementos se eliminarán permanentemente.";
 "This volume has no Trash. This action can't be undone." = "Este volumen no tiene papelera. Esta acción no se puede deshacer.";
 "Delete" = "Eliminar";
 "The 7zz binary was not found" = "No se encontró el binario 7zz";

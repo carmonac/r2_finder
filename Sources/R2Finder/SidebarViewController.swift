@@ -224,7 +224,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource,
     }
 
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
+        // Initial sidebar width: fits the longest translated row ("Під’єднатися
+        // до сервера") without truncation; the user can still resize 180–280.
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 230, height: 600))
         view.wantsLayer = true
 
         outlineView = NSOutlineView(frame: view.bounds)

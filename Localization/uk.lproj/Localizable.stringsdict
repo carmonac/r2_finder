@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>%@ (%lld files)</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%@ (%#@n@)</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>%lld файли</string>
+			<key>many</key>
+			<string>%lld файлів</string>
+			<key>one</key>
+			<string>%lld файл</string>
+			<key>other</key>
+			<string>%lld файлу</string>
+		</dict>
+	</dict>
+	<key>%lld files</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>%lld файли</string>
+			<key>many</key>
+			<string>%lld файлів</string>
+			<key>one</key>
+			<string>%lld файл</string>
+			<key>other</key>
+			<string>%lld файлу</string>
+		</dict>
+	</dict>
+	<key>%lld folders</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>%lld папки</string>
+			<key>many</key>
+			<string>%lld папок</string>
+			<key>one</key>
+			<string>%lld папка</string>
+			<key>other</key>
+			<string>%lld папки</string>
+		</dict>
+	</dict>
+	<key>%lld items will be deleted permanently.</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>%lld елементи буде видалено назавжди.</string>
+			<key>many</key>
+			<string>%lld елементів буде видалено назавжди.</string>
+			<key>one</key>
+			<string>%lld елемент буде видалено назавжди.</string>
+			<key>other</key>
+			<string>%lld елемента буде видалено назавжди.</string>
+		</dict>
+	</dict>
+	<key>Move %lld items to the Trash?</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Перемістити %#@n@ у Смітник?</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>few</key>
+			<string>%lld елементи</string>
+			<key>many</key>
+			<string>%lld елементів</string>
+			<key>one</key>
+			<string>%lld елемент</string>
+			<key>other</key>
+			<string>%lld елемента</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

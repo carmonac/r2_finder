@@ -1,0 +1,2 @@
+/* Portuguese (Brazil) Info.plist strings (base values in Scripts/bundle.sh are English). */
+"NSLocalNetworkUsageDescription" = "O R2 Finder procura computadores e servidores de arquivos na sua rede local para mostrá-los na barra lateral.";

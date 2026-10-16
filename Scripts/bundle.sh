@@ -44,13 +44,21 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>              <string>R2 Finder</string>
-  <!-- UI text is English in the code; es.lproj translates it. Any other
-       system language falls back to English. -->
+  <!-- UI text is English in the code; Localization/*.lproj translate it
+       (es.lproj is reused for ca/eu/gl, see 3b). Any other language falls
+       back to English. Scripts/check_localizations.py checks them. -->
   <key>CFBundleDevelopmentRegion</key> <string>en</string>
   <key>CFBundleLocalizations</key>
   <array>
     <string>en</string>
     <string>es</string>
+    <string>ca</string>
+    <string>eu</string>
+    <string>gl</string>
+    <string>fr</string>
+    <string>it</string>
+    <string>pt</string>
+    <string>uk</string>
   </array>
   <key>CFBundleDisplayName</key>       <string>R2 Finder</string>
   <key>CFBundleIdentifier</key>        <string>com.example.r2finder</string>
@@ -92,6 +100,11 @@ chmod 755 "$APP/Contents/Resources/7zz" "$APP/Contents/Resources/rsync"
 
 # 3b) Localizations (Localizable.strings + InfoPlist.strings per language)
 cp -R Localization/*.lproj "$APP/Contents/Resources/"
+# Catalan, Basque and Galician Macs get the Spanish UI rather than falling
+# back to English: they ship as copies of es.lproj.
+for lang in ca eu gl; do
+    cp -R Localization/es.lproj "$APP/Contents/Resources/${lang}.lproj"
+done
 
 # 4) Signature. SwiftPM leaves the binary ad-hoc "linker-signed", which does
 #    not seal Info.plist — so the privacy usage strings above are ignored and

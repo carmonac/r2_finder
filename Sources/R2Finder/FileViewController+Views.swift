@@ -514,7 +514,7 @@ extension FileViewController {
                     fileCount += 1
                 }
             }
-            sizeStr = String(format: String(localized: "%@ (%ld files)"), formattedSize(totalSize), fileCount)
+            sizeStr = String(localized: "\(formattedSize(totalSize)) (\(fileCount) files)")
         } else {
             let bytes = (attrs[.size] as? UInt64) ?? 0
             sizeStr = "\(formattedSize(bytes)) (\(bytes) bytes)"
