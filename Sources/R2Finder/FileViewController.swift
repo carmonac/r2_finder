@@ -117,6 +117,26 @@ final class FileViewController: NSViewController {
                                                selector: #selector(clipboardDidChange(_:)),
                                                name: FileClipboard.changedNotification,
                                                object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appearanceDidChange(_:)),
+                                               name: Appearance.didChange,
+                                               object: nil)
+    }
+
+    @objc private func appearanceDidChange(_ note: Notification) {
+        applyAppearance()
+        reloadAllViews()
+        columnView.redisplay()
+    }
+
+    /// Background, border and (via Appearance.icon) folder colors from Settings.
+    private func applyAppearance() {
+        let background = Appearance.background
+        outlineView.backgroundColor = background
+        scrollView.backgroundColor = background
+        outlineView.gridColor = Appearance.border(default: .gridColor)
+        collectionView.backgroundColors = [background]
+        columnView.applyAppearance()
     }
 
     @available(*, unavailable)
@@ -213,7 +233,6 @@ final class FileViewController: NSViewController {
         collectionView.delegate = self
         collectionView.isSelectable = true
         collectionView.allowsMultipleSelection = true
-        collectionView.backgroundColors = [.controlBackgroundColor]
         collectionView.register(IconCollectionViewItem.self,
                                 forItemWithIdentifier: .init("IconItem"))
         collectionView.registerForDraggedTypes([.fileURL])
@@ -260,6 +279,7 @@ final class FileViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        applyAppearance()
         loadPath(currentPath)
     }
 
@@ -367,7 +387,7 @@ final class FileViewController: NSViewController {
 
         // On navigation, blank the view immediately so the user sees they've
         // moved. On in-place refresh (FSEvents), keep the existing entries on
-        // screen so the UI doesn't flicker through String(localized: "Loading…") every time
+        // screen so the UI doesn't flicker through "Loading…" every time
         // rsync deletes a file.
         if pathChanged {
             // The old directory's expansion/selection means nothing here, and
@@ -983,7 +1003,7 @@ final class FileViewController: NSViewController {
         alert.addButton(withTitle: String(localized: "Delete"))
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.alertStyle = .critical
-        // Make the String(localized: "Delete") button visually destructive
+        // Make the "Delete" button visually destructive
         alert.buttons.first?.hasDestructiveAction = true
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] resp in
@@ -1174,7 +1194,7 @@ final class FileViewController: NSViewController {
         return df.string(from: Date(timeIntervalSince1970: TimeInterval(unix)))
     }
 
-    /// Localized String(localized: "Kind") column text.
+    /// Localized "Kind" column text.
     ///
     /// Resolved from the filename extension, cached, because the previous
     /// `resourceValues(forKeys: [.contentTypeKey])` hit the filesystem once per

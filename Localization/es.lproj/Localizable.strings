@@ -1,6 +1,7 @@
 /* Spanish UI strings. Keys are the English text used in the code. */
 
 "About R2 Finder" = "Acerca de R2 Finder";
+"Settings…" = "Ajustes…";
 "Services" = "Servicios";
 "Hide R2 Finder" = "Ocultar R2 Finder";
 "Hide Others" = "Ocultar otros";
@@ -90,6 +91,13 @@
 "Syncing…" = "Sincronizando…";
 "Unknown error" = "Error desconocido";
 "Close" = "Cerrar";
+"Settings" = "Ajustes";
+"Background:" = "Fondo:";
+"Borders:" = "Bordes:";
+"Folders:" = "Carpetas:";
+"Default" = "Por defecto";
+"The volume is in use. Close the files or apps that are using it and try again." = "El volumen está en uso. Cierra los archivos o apps que lo estén usando y vuelve a intentarlo.";
+"Eject" = "Expulsar";
 "NETWORK" = "RED";
 "FAVORITES" = "FAVORITOS";
 "DEVICES" = "DISPOSITIVOS";
@@ -97,7 +105,9 @@
 "Couldn't connect to %@" = "No se pudo conectar con %@";
 "OK" = "Aceptar";
 "Connect to %@" = "Conectar a %@";
+"Eject \"%@\"" = "Expulsar «%@»";
 "Refresh Network" = "Actualizar red";
+"Couldn't eject \"%@\"" = "No se pudo expulsar «%@»";
 "7zz exited with code %d" = "7zz salió con código %d";
 "couldn't delete: %@" = "no se pudo eliminar: %@";
 "The protocol '%@' isn't supported." = "El protocolo '%@' no está soportado.";

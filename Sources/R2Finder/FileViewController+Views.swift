@@ -85,7 +85,7 @@ extension FileViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                     return cell
                 }()
             cell.textField?.stringValue = entry.name
-            cell.imageView?.image = entry.icon
+            cell.imageView?.image = Appearance.icon(for: entry)
             cell.alphaValue = (FileClipboard.operation == .cut
                                && FileClipboard.paths.contains(entry.path)) ? 0.35 : 1.0
             return cell
@@ -227,7 +227,7 @@ extension FileViewController: NSCollectionViewDataSource, NSCollectionViewDelega
             let entry = entries[idx]
             item.textField?.stringValue = entry.name
             // Use a larger icon for icon view
-            if let icon = entry.icon?.copy() as? NSImage {
+            if let icon = Appearance.icon(for: entry)?.copy() as? NSImage {
                 icon.size = NSSize(width: 64, height: 64)
                 item.imageView?.image = icon
             }
@@ -382,7 +382,7 @@ extension FileViewController: NSMenuDelegate, NSMenuItemValidation {
         paste.target = self
         paste.keyEquivalentModifierMask = []
 
-        // AppKit hides this item and shows it in place of String(localized: "Paste") while Option
+        // AppKit hides this item and shows it in place of "Paste" while Option
         // is held. alternate = true + matching keyEquivalent is the standard
         // mechanism.
         let moveHere = menu.addItem(withTitle: String(localized: "Move Item Here"), action: #selector(moveHere(_:)), keyEquivalent: "")

@@ -84,9 +84,13 @@ final class MillerColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
-        // Thin separator lines between columns show through the stack spacing.
+        // Thin separator lines between columns: the stack's own background
+        // shows through its spacing (and a 1 pt trailing inset after the last
+        // column). Only the stack gets the border color — it's as wide as the
+        // columns, so the empty area to the right keeps the background color.
         wantsLayer = true
-        layer?.backgroundColor = NSColor.separatorColor.cgColor
+        stack.wantsLayer = true
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 1)
 
         stack.orientation = .horizontal
         stack.spacing = 1
@@ -110,6 +114,7 @@ final class MillerColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate
             stack.leadingAnchor.constraint(equalTo: hScroll.contentView.leadingAnchor),
             stack.heightAnchor.constraint(equalTo: hScroll.contentView.heightAnchor),
         ])
+        applyAppearance()
     }
 
     @available(*, unavailable)
@@ -167,6 +172,26 @@ final class MillerColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate
         }
     }
 
+    /// Border color between columns and the columns' background (Settings).
+    func applyAppearance() {
+        layer?.backgroundColor = Appearance.background.cgColor
+        stack.layer?.backgroundColor = Appearance.border(default: .separatorColor).cgColor
+        for column in columns {
+            column.table.backgroundColor = Appearance.background
+        }
+    }
+
+    /// Redraw rows without re-listing (e.g. the folder tint changed).
+    func redisplay() {
+        isRebuilding = true
+        defer { isRebuilding = false }
+        for column in columns {
+            let selection = column.table.selectedRowIndexes
+            column.table.reloadData()
+            column.table.selectRowIndexes(selection, byExtendingSelection: false)
+        }
+    }
+
     /// Selected paths of the column the user last interacted with.
     var selectedPaths: [String] {
         guard activeColumnIndex < columns.count else { return [] }
@@ -193,6 +218,7 @@ final class MillerColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate
         table.allowsEmptySelection = true
         table.rowSizeStyle = .medium
         table.style = .plain
+        table.backgroundColor = Appearance.background
         table.dataSource = self
         table.delegate = self
         table.target = self
@@ -369,7 +395,7 @@ final class MillerColumnView: NSView, NSTableViewDataSource, NSTableViewDelegate
                 return cell
             }()
         cell.textField?.stringValue = entry.name
-        cell.imageView?.image = entry.icon
+        cell.imageView?.image = Appearance.icon(for: entry)
         return cell
     }
 

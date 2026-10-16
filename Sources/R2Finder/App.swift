@@ -67,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: String(localized: "Settings…"),
+                        action: #selector(showSettings(_:)), keyEquivalent: ",").target = self
+        appMenu.addItem(.separator())
 
         let servicesMenu = NSMenu(title: String(localized: "Services"))
         appMenu.addItem(withTitle: String(localized: "Services"), action: nil, keyEquivalent: "").submenu = servicesMenu
@@ -156,6 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // ───────────────────────────────────────────────
     // MARK: - Actions
     // ───────────────────────────────────────────────
+
+    @objc func showSettings(_ sender: Any?) {
+        SettingsWindowController.shared.showWindow(sender)
+        SettingsWindowController.shared.window?.makeKeyAndOrderFront(sender)
+    }
 
     @objc func openNewWindow() {
         let wc = FinderWindowController(path: NSHomeDirectory())
